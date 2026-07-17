@@ -12,7 +12,7 @@ import SankeyLink from './SankeyLink';
 import SankeyTooltip from './SankeyTooltip';
 import styles from './SankeyDiagram.module.css';
 
-export default function SankeyDiagram({ isSimulating = false }) {
+export default function SankeyDiagram({ isSimulating = false, viewMode = 'allocated' }) {
   const state = useAllocation();
   const alerts = useAlerts();
   const containerRef = useRef(null);
@@ -40,7 +40,8 @@ export default function SankeyDiagram({ isSimulating = false }) {
   const { nodes, links, sankeyLinkPath } = useSankeyLayout(
     state,
     dimensions.width,
-    dimensions.height
+    dimensions.height,
+    viewMode
   );
 
   // ── Hover handlers ──────────────────────
@@ -81,6 +82,16 @@ export default function SankeyDiagram({ isSimulating = false }) {
           height={dimensions.height}
           viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
         >
+          <defs>
+            <filter id="glow-particle" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="2.5" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
           {/* Links (rendered first so nodes draw on top) */}
           <g className="sankey-links">
             {links.map((link, i) => (

@@ -51,6 +51,13 @@ export default function SankeyLink({ link, pathGenerator, isHighlighted, isSimul
         strokeWidth={Math.max(strokeWidth, 12)}
         style={{ cursor: 'pointer' }}
       />
+
+      {/* Real-time flowing token packet particle */}
+      {isSimulating && strokeWidth >= 1.5 && (
+        <circle r={Math.min(4, Math.max(2, strokeWidth / 3.5))} fill="#ffffff" filter="url(#glow-particle)">
+          <animateMotion path={pathD} dur="1.5s" repeatCount="indefinite" />
+        </circle>
+      )}
     </g>
   );
 }

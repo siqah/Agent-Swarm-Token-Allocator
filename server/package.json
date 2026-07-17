@@ -1,0 +1,16 @@
+{
+  "name": "agent-swarm-token-gateway",
+  "version": "1.0.0",
+  "description": "API Gateway and token rate-limiter for OpenAI Build Week",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "pg": "^8.11.3",
+    "dotenv": "^16.4.5"
+  }
+}

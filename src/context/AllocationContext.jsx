@@ -34,6 +34,7 @@ export const ACTIONS = {
   SET_AGENT_ALLOCATION: 'SET_AGENT_ALLOCATION',
   SET_THRESHOLDS: 'SET_THRESHOLDS',
   RESET: 'RESET',
+  SET_STATE: 'SET_STATE',
 };
 
 // ── Normalization Helper ─────────────────────
@@ -150,6 +151,16 @@ function allocationReducer(state, action) {
       return {
         ...state,
         thresholds: { ...state.thresholds, ...action.payload },
+      };
+    }
+
+    case ACTIONS.SET_STATE: {
+      return {
+        ...state,
+        totalBudget: action.payload.totalBudget ?? state.totalBudget,
+        selectedModel: action.payload.selectedModel ?? state.selectedModel,
+        thresholds: action.payload.thresholds ?? state.thresholds,
+        departments: action.payload.departments ?? state.departments,
       };
     }
 

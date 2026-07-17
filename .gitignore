@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local environment credentials
+.env
+.env.local
+.env.*.local
+
+# Local DB stores
+db.json
+server/db.json

@@ -10,7 +10,7 @@ export default function Header() {
   return (
     <header className={styles.header}>
       <div className={styles.brand}>
-        <div className={styles.logo}>⚡</div>
+        <img src="/favicon.svg" alt="Swarm Control Logo" className={styles.logo} />
         <div>
           <h1 className={styles.title}>Swarm Control</h1>
           <p className={styles.subtitle}>Agent Token Allocator</p>

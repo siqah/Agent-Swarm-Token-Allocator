@@ -9,18 +9,39 @@ import { sankey, sankeyLinkHorizontal } from 'd3-sankey';
 /**
  * Computes the Sankey diagram layout from allocation state.
  *
- * @param {object} state - The allocation state (departments, totalBudget)
+ * @param {object} state - The allocation state (departments, totalBudget, usage)
  * @param {number} width - SVG canvas width
  * @param {number} height - SVG canvas height
+ * @param {'allocated' | 'consumption'} viewMode - Whether to show allocated limits or actual spend
  * @returns {{ nodes: Array, links: Array, sankeyLinkPath: Function }}
  */
-export function useSankeyLayout(state, width, height) {
+export function useSankeyLayout(state, width, height, viewMode = 'allocated') {
   return useMemo(() => {
     if (!width || !height || width < 100 || height < 100) {
       return { nodes: [], links: [], sankeyLinkPath: () => '' };
     }
 
-    const { totalBudget, departments } = state;
+    const { totalBudget, departments, usage = {} } = state;
+    const isConsumption = viewMode === 'consumption';
+
+    // Helper to get agent value
+    const getAgentValue = (agent, dept) => {
+      if (isConsumption) {
+        // Return actual tokens consumed, minimum 1000 to keep links visible
+        return Math.max(usage[agent.id]?.total || 0, 1000);
+      }
+      // Theoretical allocated tokens
+      return totalBudget * (dept.allocation / 100) * (agent.allocation / 100);
+    };
+
+    // Helper to get department value
+    const getDeptValue = (dept) => {
+      if (isConsumption) {
+        // Sum of actual consumption of its agents
+        return dept.agents.reduce((sum, agent) => sum + getAgentValue(agent, dept), 0);
+      }
+      return totalBudget * (dept.allocation / 100);
+    };
 
     // ── Build nodes ────────────────────────
     const nodes = [];
@@ -29,7 +50,7 @@ export function useSankeyLayout(state, width, height) {
     // Column 0: Total Budget (source)
     const budgetNode = {
       id: 'budget',
-      name: 'Token Budget',
+      name: isConsumption ? 'Active Consumption' : 'Token Budget',
       category: 'budget',
       colorVar: '--color-budget',
       column: 0,
@@ -74,12 +95,12 @@ export function useSankeyLayout(state, width, height) {
 
     // Budget → Departments
     departments.forEach((dept) => {
-      const value = totalBudget * (dept.allocation / 100);
+      const value = getDeptValue(dept);
       if (value > 0) {
         links.push({
           source: 'budget',
           target: dept.id,
-          value: Math.max(value, 1), // d3-sankey requires value > 0
+          value: value,
           sourceId: 'budget',
           targetId: dept.id,
           sourceColorVar: '--color-budget',
@@ -90,14 +111,13 @@ export function useSankeyLayout(state, width, height) {
 
     // Departments → Agents
     departments.forEach((dept) => {
-      const deptTokens = totalBudget * (dept.allocation / 100);
       dept.agents.forEach((agent) => {
-        const value = deptTokens * (agent.allocation / 100);
+        const value = getAgentValue(agent, dept);
         if (value > 0) {
           links.push({
             source: dept.id,
             target: agent.id,
-            value: Math.max(value, 1),
+            value: value,
             sourceId: dept.id,
             targetId: agent.id,
             sourceColorVar: dept.colorVar,
@@ -128,5 +148,5 @@ export function useSankeyLayout(state, width, height) {
       links: graph.links,
       sankeyLinkPath: sankeyLinkHorizontal(),
     };
-  }, [state, width, height]);
+  }, [state, width, height, viewMode]);
 }
