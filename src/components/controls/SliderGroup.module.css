@@ -1,0 +1,151 @@
+.sliderGroup {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow: hidden;
+  transition: border-color var(--duration-fast) var(--ease-smooth);
+}
+
+.sliderGroup:hover {
+  border-color: var(--border-default);
+}
+
+/* ── Header (collapsible) ─────────────────── */
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--duration-fast) var(--ease-smooth);
+}
+
+.groupHeader:hover {
+  background: var(--bg-hover);
+}
+
+.groupIcon {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.groupName {
+  flex: 1;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.groupPercent {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  min-width: 48px;
+  text-align: right;
+}
+
+.chevron {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  transition: transform var(--duration-fast) var(--ease-smooth);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+/* ── Slider track ─────────────────────────── */
+.sliderRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+}
+
+.sliderLabel {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  min-width: 80px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slider {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-full);
+  outline: none;
+  cursor: pointer;
+  transition: opacity var(--duration-fast);
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid oklch(1 0 0 / 0.2);
+  cursor: grab;
+  transition: transform var(--duration-fast) var(--ease-spring),
+              box-shadow var(--duration-fast);
+}
+
+.slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.1);
+}
+
+.slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid oklch(1 0 0 / 0.2);
+  cursor: grab;
+}
+
+.sliderValue {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  min-width: 36px;
+  text-align: right;
+}
+
+/* ── Agent sub-section ────────────────────── */
+.agentSliders {
+  padding: var(--space-1) var(--space-4) var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  animation: fadeIn var(--duration-fast) var(--ease-smooth);
+}
+
+/* ── Alert badge ──────────────────────────── */
+.alertBadge {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  font-weight: var(--weight-semibold);
+  line-height: 1.4;
+}
+
+.alertWarning {
+  background: oklch(0.82 0.18 80 / 0.15);
+  color: oklch(0.82 0.18 80);
+}
+
+.alertDanger {
+  background: oklch(0.65 0.25 25 / 0.15);
+  color: oklch(0.65 0.25 25);
+}
