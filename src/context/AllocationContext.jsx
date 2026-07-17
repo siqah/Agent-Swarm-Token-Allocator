@@ -24,6 +24,8 @@ const initialState = {
     ...dept,
     agents: dept.agents.map((a) => ({ ...a })),
   })),
+  simulationActive: false,
+  usage: {},
 };
 
 // ── Action Types ─────────────────────────────
@@ -161,6 +163,8 @@ function allocationReducer(state, action) {
         selectedModel: action.payload.selectedModel ?? state.selectedModel,
         thresholds: action.payload.thresholds ?? state.thresholds,
         departments: action.payload.departments ?? state.departments,
+        usage: action.payload.usage ?? state.usage,
+        simulationActive: action.payload.simulationActive ?? state.simulationActive,
       };
     }
 

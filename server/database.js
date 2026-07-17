@@ -69,7 +69,8 @@ const DEFAULTS = {
     'data-analysis': { input: 0, output: 0, total: 0 },
     'reporting': { input: 0, output: 0, total: 0 }
   },
-  simulationActive: false
+  simulationActive: false,
+  swarmKeys: {}
 };
 
 class Database {
@@ -106,6 +107,7 @@ class Database {
       await this.initSchema();
       // Hydrate state from Postgres
       await this.hydrateFromPostgres();
+      this.ensureSwarmKeys();
     } catch (err) {
       console.warn('⚠️ PostgreSQL connection failed. Falling back to local JSON database.');
       this.isPostgres = false;
@@ -149,6 +151,7 @@ class Database {
         this.data.departments = stored.departments;
         this.data.thresholds = stored.thresholds || this.data.thresholds;
         this.data.simulationActive = stored.simulationActive ?? false;
+        this.data.swarmKeys = stored.swarmKeys || {};
       } else {
         // Save initial default configurations to SQL config table
         await this.saveConfigToPostgres();
@@ -181,7 +184,8 @@ class Database {
         selectedModel: this.data.selectedModel,
         departments: this.data.departments,
         thresholds: this.data.thresholds,
-        simulationActive: this.data.simulationActive
+        simulationActive: this.data.simulationActive,
+        swarmKeys: this.data.swarmKeys
       };
       await this.pool.query(
         "INSERT INTO config (key, value) VALUES ('main', $1) ON CONFLICT (key) DO UPDATE SET value = $1",
@@ -198,12 +202,18 @@ class Database {
         const fileContent = fs.readFileSync(DB_FILE, 'utf8');
         this.data = JSON.parse(fileContent);
       } else {
+        this.data = { ...DEFAULTS };
         this.saveJson();
       }
     } catch (err) {
       console.error('Error loading JSON database:', err);
       this.data = { ...DEFAULTS };
     }
+    // Ensure swarmKeys field exists (legacy data may not have it)
+    if (!this.data.swarmKeys) {
+      this.data.swarmKeys = {};
+    }
+    this.ensureSwarmKeys();
   }
 
   saveJson() {
@@ -284,6 +294,59 @@ class Database {
       this.saveJson();
     }
     return this.data.usage;
+  }
+
+  generateSwarmKey(agentId, agentName) {
+    const suffix = Math.random().toString(36).substring(2, 8);
+    return `swarm-${agentId}-${suffix}`;
+  }
+
+  ensureSwarmKeys() {
+    let changed = false;
+    this.data.departments.forEach((dept) => {
+      dept.agents.forEach((agent) => {
+        if (!agent.swarmKey) {
+          agent.swarmKey = this.generateSwarmKey(agent.id, agent.name);
+          changed = true;
+        }
+        this.data.swarmKeys[agent.swarmKey] = {
+          agentId: agent.id,
+          deptId: dept.id,
+          name: agent.name
+        };
+      });
+    });
+    if (changed) {
+      if (this.isPostgres) {
+        this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+    }
+  }
+
+  getAgentBySwarmKey(key) {
+    return this.data.swarmKeys[key] || null;
+  }
+
+  regenerateSwarmKeys() {
+    this.data.swarmKeys = {};
+    this.data.departments.forEach((dept) => {
+      dept.agents.forEach((agent) => {
+        agent.swarmKey = this.generateSwarmKey(agent.id, agent.name);
+        this.data.swarmKeys[agent.swarmKey] = {
+          agentId: agent.id,
+          deptId: dept.id,
+          name: agent.name
+        };
+      });
+    });
+    if (this.isPostgres) {
+      this.saveConfigToPostgres();
+    } else {
+      this.saveJson();
+    }
+    return this.data.swarmKeys;
   }
 }
 

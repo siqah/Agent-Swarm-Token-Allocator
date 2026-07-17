@@ -3,11 +3,12 @@
   border-radius: var(--radius-lg);
   background: var(--bg-surface);
   overflow: hidden;
-  transition: border-color var(--duration-fast) var(--ease-smooth);
+  transition: all var(--duration-fast) var(--ease-out-quint);
 }
 
 .sliderGroup:hover {
   border-color: var(--border-default);
+  box-shadow: var(--shadow-sm);
 }
 
 /* ── Header (collapsible) ─────────────────── */
@@ -18,7 +19,7 @@
   padding: var(--space-3) var(--space-4);
   cursor: pointer;
   user-select: none;
-  transition: background var(--duration-fast) var(--ease-smooth);
+  transition: background var(--duration-fast) var(--ease-out-quint);
 }
 
 .groupHeader:hover {
@@ -26,7 +27,7 @@
 }
 
 .groupIcon {
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   line-height: 1;
 }
 
@@ -48,7 +49,7 @@
 .chevron {
   font-size: 0.75rem;
   color: var(--text-muted);
-  transition: transform var(--duration-fast) var(--ease-smooth);
+  transition: transform var(--duration-fast) var(--ease-out-quint);
 }
 
 .chevronOpen {
@@ -60,7 +61,12 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  transition: background var(--duration-fast) var(--ease-out-quint);
+}
+
+.sliderRow:hover {
+  background: oklch(1 0 0 / 0.015);
 }
 
 .sliderLabel {
@@ -74,14 +80,14 @@
 
 .slider {
   flex: 1;
-  height: 6px;
+  height: 4px;
   -webkit-appearance: none;
   appearance: none;
   background: var(--bg-elevated);
   border-radius: var(--radius-full);
   outline: none;
   cursor: pointer;
-  transition: opacity var(--duration-fast);
+  transition: opacity var(--duration-fast) var(--ease-out-quint);
 }
 
 .slider::-webkit-slider-thumb {
@@ -91,7 +97,7 @@
   height: 14px;
   border-radius: 50%;
   background: #ffffff;
-  border: 1px solid var(--border-strong);
+  border: 2px solid var(--accent-color, var(--border-strong));
   cursor: grab;
   box-shadow: 0 1px 3px oklch(0 0 0 / 0.3);
   transition: transform var(--duration-fast) var(--ease-out-quint),
@@ -113,7 +119,7 @@
   height: 14px;
   border-radius: 50%;
   background: #ffffff;
-  border: 1px solid var(--border-strong);
+  border: 2px solid var(--accent-color, var(--border-strong));
   cursor: grab;
   box-shadow: 0 1px 3px oklch(0 0 0 / 0.3);
 }
@@ -153,4 +159,87 @@
 .alertDanger {
   background: oklch(0.65 0.25 25 / 0.15);
   color: oklch(0.65 0.25 25);
+}
+
+/* ── Slider +/- Adjust Buttons ────────────── */
+.adjustButton {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out-quint);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.adjustButton:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+
+.increaseButton:hover {
+  background: color-mix(in srgb, var(--accent-color) 15%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent-color) 45%, transparent) !important;
+  color: var(--accent-color) !important;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent-color) 15%, transparent);
+}
+
+/* ── Swarm Key Display ─────────────────────── */
+.keyRow {
+  display: flex;
+  align-items: center;
+  padding: 2px var(--space-4) var(--space-2);
+  margin-top: -4px;
+}
+
+.swarmKeyCode {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 1px 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  border: 1px solid var(--border-subtle);
+  user-select: all;
+  cursor: text;
+}
+
+.keyButton {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  transition: all var(--duration-fast) var(--ease-out-quint);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.keyButton:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.keyCopied {
+  color: var(--color-success, #22c55e) !important;
+}
+
+.swarmKeyText {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
 }

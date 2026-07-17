@@ -4,6 +4,7 @@
 
 import { useCosts } from '../../context/CostContext';
 import { useAlerts } from '../../hooks/useAlerts';
+import { useAllocation } from '../../context/AllocationContext';
 import { formatCurrency, formatCompact, formatPercent } from '../../utils/formatters';
 import styles from './CostCard.module.css';
 
@@ -25,6 +26,7 @@ export function TotalCostCard() {
 export function AgentCostCard({ agent, department }) {
   const { getCost } = useCosts();
   const alerts = useAlerts();
+  const state = useAllocation();
   const cost = getCost(agent.id);
   const alert = alerts.get(agent.id);
 
@@ -40,11 +42,37 @@ export function AgentCostCard({ agent, department }) {
     .getPropertyValue(department.colorVar)
     .trim();
 
+  // Compute spend limits and actual telemetry usage percentage
+  const quotaLimit = cost?.totalTokens || 1;
+  const currentUsage = state.usage?.[agent.id]?.total || 0;
+  const spendRatio = Math.min(1, currentUsage / quotaLimit);
+  const spendPercent = Math.round(spendRatio * 1000) / 10;
+
+  // Determine status dot style
+  const statusColor =
+    alert?.level === 'danger'
+      ? 'var(--color-danger)'
+      : alert?.level === 'warning'
+      ? 'var(--color-warning)'
+      : 'var(--color-success)';
+
   return (
     <div className={cardClass}>
       <div className={styles.cardHeader}>
         <span className={styles.agentLabel}>
-          <span>{agent.icon}</span>
+          <span
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: statusColor,
+              display: 'inline-block',
+              marginRight: '6px',
+              boxShadow: `0 0 6px ${statusColor}`,
+              animation: alert?.level !== 'normal' ? 'fadeIn 1s infinite alternate' : 'none',
+            }}
+          />
+          <span style={{ marginRight: '6px' }}>{agent.icon}</span>
           {agent.name}
         </span>
         <span
@@ -60,6 +88,30 @@ export function AgentCostCard({ agent, department }) {
 
       <div className={styles.costValue}>
         {cost ? formatCurrency(cost.totalCost) : '$0.00'}
+      </div>
+
+      {/* Real-time horizontal spend bar */}
+      <div style={{ marginTop: 'var(--space-1)', marginBottom: 'var(--space-2)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)', marginBottom: '3px' }}>
+          <span>LIVE CONSUMPTION</span>
+          <span style={{ fontFamily: 'var(--font-mono)' }}>{formatPercent(spendPercent)}</span>
+        </div>
+        <div style={{
+          height: '4px',
+          background: 'var(--bg-elevated)',
+          borderRadius: 'var(--radius-full)',
+          overflow: 'hidden',
+          display: 'flex',
+        }}>
+          <div style={{
+            width: '100%',
+            transform: `scaleX(${spendRatio})`,
+            transformOrigin: 'left',
+            background: alert?.level === 'danger' ? 'var(--color-danger)' : alert?.level === 'warning' ? 'var(--color-warning)' : color,
+            borderRadius: 'var(--radius-full)',
+            transition: 'transform 250ms var(--ease-out-quint)',
+          }} />
+        </div>
       </div>
 
       <div className={styles.subStats}>

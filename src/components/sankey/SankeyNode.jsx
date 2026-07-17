@@ -48,18 +48,48 @@ export default function SankeyNode({ node, alertLevel, isHovered, onHover, onLea
         </rect>
       )}
 
-      {/* Main node rectangle */}
+      {/* Soft colored ambient glow on hover */}
+      {isHovered && (
+        <rect
+          x={node.x0 - 4}
+          y={node.y0 - 4}
+          width={nodeWidth + 8}
+          height={nodeHeight + 8}
+          rx={8}
+          fill={color || '#38bdf8'}
+          opacity={0.15}
+          style={{ pointerEvents: 'none' }}
+        />
+      )}
+
+      {/* Glassmorphic base container */}
       <rect
         x={node.x0}
         y={node.y0}
         width={nodeWidth}
         height={nodeHeight}
         rx={4}
-        fill={color || '#38bdf8'}
-        opacity={isHovered ? 1 : 0.85}
+        fill="var(--bg-elevated)"
+        stroke="var(--border-subtle)"
+        strokeWidth={1}
+        opacity={isHovered ? 0.95 : 0.70}
         style={{
-          filter: isHovered ? `drop-shadow(0 0 8px ${color})` : 'none',
-          transition: 'opacity 200ms ease, filter 200ms ease',
+          transition: 'opacity var(--duration-fast) var(--ease-out-quint)',
+        }}
+      />
+
+      {/* Edge indicator status bar */}
+      <rect
+        x={node.column === 2 ? node.x0 : node.x1 - 3}
+        y={node.y0}
+        width={3}
+        height={nodeHeight}
+        rx={1.5}
+        fill={color || '#38bdf8'}
+        opacity={isHovered ? 1 : 0.8}
+        style={{
+          filter: isHovered ? `drop-shadow(0 0 6px ${color})` : 'none',
+          transition: 'opacity var(--duration-fast) var(--ease-out-quint), filter var(--duration-fast) var(--ease-out-quint)',
         }}
       />
 
@@ -71,10 +101,10 @@ export default function SankeyNode({ node, alertLevel, isHovered, onHover, onLea
           textAnchor={node.column === 2 ? 'start' : 'end'}
           dominantBaseline="middle"
           fill="oklch(0.92 0.005 260)"
-          fontSize="12"
-          fontFamily="var(--font-body)"
+          fontSize="10"
+          fontFamily="var(--font-mono)"
           fontWeight="500"
-          style={{ pointerEvents: 'none' }}
+          style={{ pointerEvents: 'none', letterSpacing: '0.04em', textTransform: 'uppercase' }}
         >
           {node.icon && `${node.icon} `}
           {node.name}

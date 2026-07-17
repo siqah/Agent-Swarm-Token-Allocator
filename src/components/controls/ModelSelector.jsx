@@ -5,6 +5,7 @@
 import { useCallback } from 'react';
 import { useAllocation, useAllocationDispatch, ACTIONS } from '../../context/AllocationContext';
 import { getModelOptions } from '../../data/pricing';
+import headerStyles from '../layout/Header.module.css';
 
 export default function ModelSelector() {
   const { selectedModel } = useAllocation();
@@ -18,24 +19,11 @@ export default function ModelSelector() {
     [dispatch]
   );
 
-  const tierColors = {
-    flagship: 'oklch(0.65 0.25 25)',
-    balanced: 'oklch(0.75 0.15 200)',
-    efficient: 'oklch(0.78 0.17 150)',
-    economy: 'oklch(0.82 0.18 80)',
-  };
-
   return (
-    <div className="model-selector-wrapper">
+    <div className={headerStyles.inputWrapper}>
       <label
         htmlFor="model-selector"
-        style={{
-          fontSize: 'var(--text-xs)',
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          fontWeight: 'var(--weight-medium)',
-        }}
+        className={headerStyles.inputLabel}
       >
         Model
       </label>
@@ -44,19 +32,7 @@ export default function ModelSelector() {
         id="model-selector"
         value={selectedModel}
         onChange={handleChange}
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--text-sm)',
-          background: 'var(--bg-elevated)',
-          border: '1px solid var(--border-default)',
-          borderRadius: 'var(--radius-md)',
-          padding: 'var(--space-2) var(--space-3)',
-          color: 'var(--text-primary)',
-          cursor: 'pointer',
-          outline: 'none',
-          width: '100%',
-          transition: 'border-color var(--duration-fast)',
-        }}
+        className={headerStyles.selectField}
       >
         {models.map((model) => (
           <option key={model.id} value={model.id}>

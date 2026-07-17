@@ -2,7 +2,7 @@
    Global Styles — Reset + Base
    ============================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 /* ── Reset ────────────────────────────────── */
 *,
@@ -27,6 +27,8 @@ body {
   line-height: var(--leading-normal);
   color: var(--text-primary);
   background-color: var(--bg-deep);
+  background-image: var(--grid-pattern);
+  background-size: var(--grid-size) var(--grid-size);
   min-height: 100vh;
   overflow-x: hidden;
 }

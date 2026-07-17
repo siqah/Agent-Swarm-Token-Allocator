@@ -5,17 +5,21 @@
 
 :root {
   /* ── Background Surfaces ────────────────── */
-  --bg-deep:       oklch(0.13 0.02 260);
-  --bg-surface:    oklch(0.18 0.015 260);
-  --bg-elevated:   oklch(0.22 0.015 260);
-  --bg-glass:      oklch(0.20 0.01 260 / 0.6);
-  --bg-hover:      oklch(0.25 0.015 260);
+  --bg-deep:       oklch(0.08 0.01 260);
+  --bg-surface:    oklch(0.12 0.01 260);
+  --bg-elevated:   oklch(0.16 0.012 260);
+  --bg-glass:      oklch(0.14 0.01 260 / 0.5);
+  --bg-hover:      oklch(0.20 0.015 260);
+
+  /* ── Grid Pattern ───────────────────────── */
+  --grid-size:     24px;
+  --grid-pattern:  radial-gradient(circle at 1px 1px, oklch(1 0 0 / 0.03) 1px, transparent 0);
 
   /* ── Text Colors ────────────────────────── */
-  --text-primary:    oklch(0.95 0.005 260);
-  --text-secondary:  oklch(0.72 0.01 260);
-  --text-muted:      oklch(0.55 0.01 260);
-  --text-inverse:    oklch(0.13 0.02 260);
+  --text-primary:    oklch(0.96 0.005 260);
+  --text-secondary:  oklch(0.74 0.008 260);
+  --text-muted:      oklch(0.52 0.01 260);
+  --text-inverse:    oklch(0.08 0.01 260);
 
   /* ── Agent Category Colors ──────────────── */
   --color-budget:       oklch(0.78 0.12 250);   /* sky blue — total budget node */
@@ -24,6 +28,12 @@
   --color-sales:        oklch(0.80 0.16 85);    /* amber */
   --color-operations:   oklch(0.75 0.17 155);   /* emerald */
 
+  /* ── Glowing Accent Shadows ──────────────── */
+  --shadow-glow-cyan:     0 0 16px oklch(0.75 0.15 200 / 0.25);
+  --shadow-glow-violet:   0 0 16px oklch(0.72 0.18 300 / 0.25);
+  --shadow-glow-amber:    0 0 16px oklch(0.80 0.16 85 / 0.25);
+  --shadow-glow-emerald:  0 0 16px oklch(0.75 0.17 155 / 0.25);
+
   /* ── Semantic Colors ────────────────────── */
   --color-success:  oklch(0.78 0.17 150);
   --color-warning:  oklch(0.82 0.18 80);
@@ -31,12 +41,12 @@
   --color-info:     oklch(0.75 0.12 250);
 
   /* ── Borders ────────────────────────────── */
-  --border-subtle:   oklch(1 0 0 / 0.06);
-  --border-default:  oklch(1 0 0 / 0.10);
-  --border-strong:   oklch(1 0 0 / 0.15);
+  --border-subtle:   oklch(1 0 0 / 0.04);
+  --border-default:  oklch(1 0 0 / 0.08);
+  --border-strong:   oklch(1 0 0 / 0.12);
 
   /* ── Typography ─────────────────────────── */
-  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
   /* Fixed rem scale for product dashboards to prevent layout drift */

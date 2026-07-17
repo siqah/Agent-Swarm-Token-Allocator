@@ -77,7 +77,7 @@ export default function AlertToast() {
             display: 'flex',
             alignItems: 'center',
             gap: 'var(--space-3)',
-            animation: 'slideInRight 300ms var(--ease-spring)',
+            animation: 'slideInRight 300ms var(--ease-out-quint)',
             cursor: 'pointer',
           }}
           onClick={() => dismissToast(toast.id)}

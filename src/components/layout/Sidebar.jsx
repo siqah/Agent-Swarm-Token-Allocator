@@ -2,11 +2,12 @@
  * Sidebar — Department and agent sliders.
  */
 
+import { memo } from 'react';
 import { useAllocation, useAllocationDispatch, ACTIONS } from '../../context/AllocationContext';
 import SliderGroup from '../controls/SliderGroup';
 import styles from './Sidebar.module.css';
 
-export default function Sidebar() {
+const Sidebar = memo(function Sidebar({ onHoverNode }) {
   const { departments } = useAllocation();
   const dispatch = useAllocationDispatch();
 
@@ -16,7 +17,7 @@ export default function Sidebar() {
 
       <div className="stagger-children" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
         {departments.map((dept) => (
-          <SliderGroup key={dept.id} department={dept} />
+          <SliderGroup key={dept.id} department={dept} onHoverNode={onHoverNode} />
         ))}
       </div>
 
@@ -28,4 +29,6 @@ export default function Sidebar() {
       </button>
     </aside>
   );
-}
+});
+
+export default Sidebar;

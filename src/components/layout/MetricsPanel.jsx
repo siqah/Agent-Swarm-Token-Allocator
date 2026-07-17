@@ -4,6 +4,7 @@
 
 import { useAllocation } from '../../context/AllocationContext';
 import { TotalCostCard, AgentCostCard } from '../feedback/CostCard';
+import GatewayLogs from '../feedback/GatewayLogs';
 import ExportButton from '../feedback/ExportButton';
 import styles from './MetricsPanel.module.css';
 
@@ -29,6 +30,10 @@ export default function MetricsPanel() {
           ))
         )}
       </div>
+
+      <div className={styles.divider} />
+
+      <GatewayLogs />
 
       <div className={styles.divider} />
 

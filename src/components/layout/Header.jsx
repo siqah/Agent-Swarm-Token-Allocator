@@ -11,9 +11,10 @@ export default function Header() {
     <header className={styles.header}>
       <div className={styles.brand}>
         <img src="/favicon.svg" alt="Swarm Control Logo" className={styles.logo} />
-        <div>
-          <h1 className={styles.title}>Swarm Control</h1>
-          <p className={styles.subtitle}>Agent Token Allocator</p>
+        <div className={styles.workspaceSelector}>
+          <span className={styles.statusDot} />
+          <span className={styles.workspaceText}>swarm-control / sandbox-01</span>
+          <span className={styles.dropdownChevron}>▾</span>
         </div>
       </div>
 

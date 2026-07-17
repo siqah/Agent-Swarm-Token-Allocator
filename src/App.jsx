@@ -16,6 +16,7 @@ function AppContent() {
   const dispatch = useAllocationDispatch();
   const [viewMode, setViewMode] = useState('allocated');
   const [elapsed, setElapsed] = useState(0);
+  const [hoveredNodeId, setHoveredNodeId] = useState(null);
 
   const isSimulating = state.simulationActive;
 
@@ -117,61 +118,63 @@ function AppContent() {
 
       {/* Main 3-column responsive grid */}
       <main className="app-main">
-        <Sidebar />
+        <Sidebar onHoverNode={setHoveredNodeId} />
 
         {/* Center: Sankey Diagram */}
         <section className="app-center">
-          <SankeyDiagram isSimulating={isSimulating} viewMode={viewMode} />
+          <SankeyDiagram 
+            isSimulating={isSimulating} 
+            viewMode={viewMode} 
+            hoveredNodeId={hoveredNodeId}
+            onHoverNode={setHoveredNodeId}
+          />
         </section>
 
         <MetricsPanel />
       </main>
 
-      {/* Footer */}
+      {/* Footer (IDE Status Bar) */}
       <footer className="app-footer">
-        <span className="footer-brand">
-          <span className="codex-badge">Built with Codex</span>
-          Agent Swarm Token Allocator
+        <div className="status-bar-left">
+          <span className="status-item">
+            <span className="status-indicator-green">●</span>
+            PG-DB: CONNECTED
+          </span>
+          <span className="status-divider">|</span>
+          <span className="status-item">
+            MODEL: {state.selectedModel ? state.selectedModel.toUpperCase() : 'NONE'}
+          </span>
           {isSimulating && (
-            <span className="sim-timer mono">
-              ⏱ {elapsed}s active
-            </span>
+            <>
+              <span className="status-divider">|</span>
+              <span className="status-item timer-pulse">
+                SIM: {elapsed}s ACTIVE
+              </span>
+            </>
           )}
-        </span>
+        </div>
 
-        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-          {/* View Mode Toggle */}
+        <div className="status-bar-right">
           <button
-            className="sim-button"
+            className="status-button"
             onClick={() => setViewMode((prev) => (prev === 'allocated' ? 'consumption' : 'allocated'))}
-            style={{
-              background: viewMode === 'consumption' ? 'oklch(0.75 0.15 200 / 0.1)' : 'var(--bg-elevated)',
-              borderColor: viewMode === 'consumption' ? 'oklch(0.75 0.15 200 / 0.3)' : 'var(--border-subtle)',
-              color: viewMode === 'consumption' ? 'oklch(0.75 0.15 200)' : 'var(--text-secondary)',
-            }}
           >
-            {viewMode === 'allocated' ? '👁 View: Limits' : '👁 View: Live Spend'}
+            {viewMode === 'allocated' ? 'VIEW: LIMITS' : 'VIEW: LIVE SPEND'}
           </button>
 
-          {/* Clear Usage */}
           <button
-            className="sim-button"
+            className="status-button"
             onClick={handleClearUsage}
             disabled={isSimulating}
-            style={{
-              opacity: isSimulating ? 0.5 : 1,
-              cursor: isSimulating ? 'not-allowed' : 'pointer',
-            }}
           >
-            🧹 Reset Stats
+            RESET STATS
           </button>
 
-          {/* Start/Stop Simulation */}
           <button
-            className={`sim-button ${isSimulating ? 'sim-active' : ''}`}
+            className={`status-button status-sim-trigger ${isSimulating ? 'sim-active' : ''}`}
             onClick={toggleSimulation}
           >
-            {isSimulating ? '⏹ Stop Simulation' : '▶ Simulate Live Usage'}
+            {isSimulating ? 'STOP SIMULATION' : 'SIMULATE SWARM'}
           </button>
         </div>
       </footer>

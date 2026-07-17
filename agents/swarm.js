@@ -1,20 +1,19 @@
 /**
  * swarm.js — Standalone Swarm Simulator Client.
- * Runs in the background, making continuous HTTP requests to our Gateway,
- * simulating a fleet of active agents running tasks.
+ * Uses Virtual Swarm Keys (just like a real developer would with the OpenAI SDK).
  */
 
 const GATEWAY_URL = 'http://localhost:3001/v1/chat/completions';
 
 const AGENTS = [
-  { id: 'code-review', dept: 'engineering', name: '🔍 Code Review Agent' },
-  { id: 'debug-agent', dept: 'engineering', name: '🐛 Debug Agent' },
-  { id: 'content-agent', dept: 'marketing', name: '✍️ Content Agent' },
-  { id: 'seo-agent', dept: 'marketing', name: '🔎 SEO Agent' },
-  { id: 'lead-scoring', dept: 'sales', name: '🎯 Lead Scoring Agent' },
-  { id: 'email-drafter', dept: 'sales', name: '📧 Email Drafter Agent' },
-  { id: 'data-analysis', dept: 'operations', name: '📈 Data Analysis Agent' },
-  { id: 'reporting', dept: 'operations', name: '📋 Reporting Agent' }
+  { id: 'code-review', dept: 'engineering', name: '🔍 Code Review Agent', key: 'swarm-code-review-xxxxx' },
+  { id: 'debug-agent', dept: 'engineering', name: '🐛 Debug Agent', key: 'swarm-debug-agent-xxxxx' },
+  { id: 'content-agent', dept: 'marketing', name: '✍️ Content Agent', key: 'swarm-content-agent-xxxxx' },
+  { id: 'seo-agent', dept: 'marketing', name: '🔎 SEO Agent', key: 'swarm-seo-agent-xxxxx' },
+  { id: 'lead-scoring', dept: 'sales', name: '🎯 Lead Scoring Agent', key: 'swarm-lead-scoring-xxxxx' },
+  { id: 'email-drafter', dept: 'sales', name: '📧 Email Drafter Agent', key: 'swarm-email-drafter-xxxxx' },
+  { id: 'data-analysis', dept: 'operations', name: '📈 Data Analysis Agent', key: 'swarm-data-analysis-xxxxx' },
+  { id: 'reporting', dept: 'operations', name: '📋 Reporting Agent', key: 'swarm-reporting-xxxxx' }
 ];
 
 const PROMPTS = [
@@ -28,6 +27,22 @@ const PROMPTS = [
   "Export the monthly summary breakdown as PDF format."
 ];
 
+async function fetchSwarmKeys() {
+  try {
+    const res = await fetch('http://localhost:3001/api/keys');
+    const data = await res.json();
+    if (data.keys) {
+      data.keys.forEach(({ key, agentId }) => {
+        const agent = AGENTS.find(a => a.id === agentId);
+        if (agent) agent.key = key;
+      });
+      console.log('Loaded Virtual Swarm Keys from gateway.');
+    }
+  } catch {
+    console.warn('Could not fetch keys from gateway, using defaults. Start the server first.');
+  }
+}
+
 async function runAgent(agent) {
   const prompt = PROMPTS[Math.floor(Math.random() * PROMPTS.length)];
 
@@ -36,8 +51,7 @@ async function runAgent(agent) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Agent-ID': agent.id,
-        'X-Department-ID': agent.dept
+        'Authorization': `Bearer ${agent.key}` // Standard OpenAI SDK auth
       },
       body: JSON.stringify({
         model: 'gpt-5.6-terra',
@@ -50,7 +64,10 @@ async function runAgent(agent) {
     if (response.status === 429) {
       console.warn(`\x1b[31m[BLOCKED] ${agent.name} (Budget Exceeded): ${data.error.message}\x1b[0m`);
     } else if (response.status === 200) {
-      console.log(`\x1b[32m[SUCCESS] ${agent.name} consumed ${data.usage.total_tokens} tokens.\x1b[0m`);
+      const fallbackNote = data._fallback ? ` [fallback ${data._requested_model} → ${data.model}]` : '';
+      console.log(`\x1b[32m[SUCCESS] ${agent.name} consumed ${data.usage.total_tokens} tokens on ${data.model}.${fallbackNote}\x1b[0m`);
+    } else if (response.status === 401) {
+      console.error(`\x1b[31m[AUTH ERROR] ${agent.name}: ${data.error?.message}\x1b[0m`);
     } else {
       console.error(`[ERROR] ${agent.name} failed:`, data.error?.message || 'Unknown error');
     }
@@ -59,12 +76,13 @@ async function runAgent(agent) {
   }
 }
 
-function start() {
+async function start() {
+  await fetchSwarmKeys();
+
   console.log('🚀 Standalone Agent Swarm simulator client started.');
   console.log(`Targeting LLM Gateway at ${GATEWAY_URL}`);
   console.log('Press Ctrl+C to stop.\n');
 
-  // Trigger agent requests at random intervals between 500ms and 2000ms
   function scheduleNext() {
     const delay = Math.floor(Math.random() * 1500) + 500;
     setTimeout(async () => {

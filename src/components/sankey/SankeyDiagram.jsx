@@ -3,7 +3,7 @@
  * D3 computes the layout, React renders SVG elements.
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useDeferredValue } from 'react';
 import { useAllocation } from '../../context/AllocationContext';
 import { useAlerts } from '../../hooks/useAlerts';
 import { useSankeyLayout } from '../../hooks/useSankeyLayout';
@@ -12,12 +12,17 @@ import SankeyLink from './SankeyLink';
 import SankeyTooltip from './SankeyTooltip';
 import styles from './SankeyDiagram.module.css';
 
-export default function SankeyDiagram({ isSimulating = false, viewMode = 'allocated' }) {
+export default function SankeyDiagram({
+  isSimulating = false,
+  viewMode = 'allocated',
+  hoveredNodeId = null,
+  onHoverNode,
+}) {
   const state = useAllocation();
+  const deferredState = useDeferredValue(state);
   const alerts = useAlerts();
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [mousePos, setMousePos] = useState(null);
 
   // ── Responsive sizing ────────────────────
@@ -38,7 +43,7 @@ export default function SankeyDiagram({ isSimulating = false, viewMode = 'alloca
 
   // ── Compute layout ──────────────────────
   const { nodes, links, sankeyLinkPath } = useSankeyLayout(
-    state,
+    deferredState,
     dimensions.width,
     dimensions.height,
     viewMode
@@ -46,13 +51,13 @@ export default function SankeyDiagram({ isSimulating = false, viewMode = 'alloca
 
   // ── Hover handlers ──────────────────────
   const handleNodeHover = useCallback((nodeId) => {
-    setHoveredNodeId(nodeId);
-  }, []);
+    onHoverNode?.(nodeId);
+  }, [onHoverNode]);
 
   const handleNodeLeave = useCallback(() => {
-    setHoveredNodeId(null);
+    onHoverNode?.(null);
     setMousePos(null);
-  }, []);
+  }, [onHoverNode]);
 
   const handleMouseMove = useCallback((e) => {
     setMousePos({ x: e.clientX, y: e.clientY });
@@ -82,15 +87,7 @@ export default function SankeyDiagram({ isSimulating = false, viewMode = 'alloca
           height={dimensions.height}
           viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
         >
-          <defs>
-            <filter id="glow-particle" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="2.5" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
+
 
           {/* Links (rendered first so nodes draw on top) */}
           <g className="sankey-links">
