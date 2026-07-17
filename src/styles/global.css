@@ -27,8 +27,6 @@ body {
   line-height: var(--leading-normal);
   color: var(--text-primary);
   background-color: var(--bg-deep);
-  background-image: var(--grid-pattern);
-  background-size: var(--grid-size) var(--grid-size);
   min-height: 100vh;
   overflow-x: hidden;
 }

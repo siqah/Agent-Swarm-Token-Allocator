@@ -17,25 +17,35 @@ function AppContent() {
   const [viewMode, setViewMode] = useState('allocated');
   const [elapsed, setElapsed] = useState(0);
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
+  const [connected, setConnected] = useState(true);
 
   const isSimulating = state.simulationActive;
 
-  // 1. Initial State Hydration on Mount
+  async function fetchStatus() {
+    try {
+      const res = await fetch('/api/status');
+      if (!res.ok) throw new Error('Server error');
+      const data = await res.json();
+      setConnected(true);
+      return data;
+    } catch {
+      setConnected(false);
+      return null;
+    }
+  }
+
   useEffect(() => {
-    fetch('/api/status')
-      .then((res) => res.json())
-      .then((data) => {
+    fetchStatus().then((data) => {
+      if (data) {
         dispatch({ type: ACTIONS.SET_STATE, payload: data });
-      })
-      .catch((err) => console.error('Failed to sync initial status:', err));
+      }
+    });
   }, [dispatch]);
 
-  // 2. Real-Time Telemetry Polling Loop (polls usage and simulation status every 1s)
   useEffect(() => {
     const interval = setInterval(() => {
-      fetch('/api/status')
-        .then((res) => res.json())
-        .then((data) => {
+      fetchStatus().then((data) => {
+        if (data) {
           dispatch({
             type: ACTIONS.SET_STATE,
             payload: {
@@ -43,16 +53,14 @@ function AppContent() {
               simulationActive: data.simulationActive,
             },
           });
-        })
-        .catch((err) => console.error('Telemetry polling failed:', err));
+        }
+      });
     }, 1000);
 
     return () => clearInterval(interval);
   }, [dispatch]);
 
-  // 3. Debounced Configuration Push to Server (triggered when budget/allocations change)
   useEffect(() => {
-    // Skip if state is empty/unhydrated
     if (!state.departments || state.departments.length === 0) return;
 
     const timer = setTimeout(() => {
@@ -65,13 +73,12 @@ function AppContent() {
           departments: state.departments,
           thresholds: state.thresholds,
         }),
-      }).catch((err) => console.error('Failed to save config:', err));
+      }).catch(() => setConnected(false));
     }, 300);
 
     return () => clearTimeout(timer);
   }, [state.totalBudget, state.selectedModel, state.departments, state.thresholds]);
 
-  // 4. Local Timer simulation for elapsed duration
   useEffect(() => {
     if (!isSimulating) {
       setElapsed(0);
@@ -83,7 +90,6 @@ function AppContent() {
     return () => clearInterval(timer);
   }, [isSimulating]);
 
-  // 5. Simulation Handlers
   const toggleSimulation = useCallback(() => {
     fetch('/api/simulation/toggle', { method: 'POST' })
       .then((res) => res.json())
@@ -93,10 +99,10 @@ function AppContent() {
           payload: { simulationActive: data.simulationActive },
         });
         if (data.simulationActive) {
-          setViewMode('consumption'); // Auto-switch to live spend view
+          setViewMode('consumption');
         }
       })
-      .catch((err) => console.error('Failed to toggle simulation:', err));
+      .catch(() => setConnected(false));
   }, [dispatch]);
 
   const handleClearUsage = useCallback(() => {
@@ -108,19 +114,16 @@ function AppContent() {
           payload: { usage: data.usage },
         });
       })
-      .catch((err) => console.error('Failed to reset usage:', err));
+      .catch(() => setConnected(false));
   }, [dispatch]);
 
   return (
     <div className="app-shell">
-      {/* Header */}
       <Header />
 
-      {/* Main 3-column responsive grid */}
       <main className="app-main">
         <Sidebar onHoverNode={setHoveredNodeId} />
 
-        {/* Center: Sankey Diagram */}
         <section className="app-center">
           <SankeyDiagram 
             isSimulating={isSimulating} 
@@ -133,12 +136,11 @@ function AppContent() {
         <MetricsPanel />
       </main>
 
-      {/* Footer (IDE Status Bar) */}
       <footer className="app-footer">
         <div className="status-bar-left">
           <span className="status-item">
-            <span className="status-indicator-green">●</span>
-            PG-DB: CONNECTED
+            <span className={`status-indicator ${connected ? 'status-indicator-green' : 'status-indicator-red'}`}>●</span>
+            GATEWAY: {connected ? 'ONLINE' : 'OFFLINE'}
           </span>
           <span className="status-divider">|</span>
           <span className="status-item">
@@ -179,7 +181,6 @@ function AppContent() {
         </div>
       </footer>
 
-      {/* Toast notifications */}
       <AlertToast />
     </div>
   );

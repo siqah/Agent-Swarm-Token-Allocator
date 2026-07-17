@@ -3,7 +3,7 @@
  * Uses useReducer with proportional normalization logic.
  */
 
-import { createContext, useContext, useReducer, useMemo } from 'react';
+import { createContext, useContext, useReducer } from 'react';
 import {
   DEFAULT_TOTAL_BUDGET,
   DEFAULT_MODEL,

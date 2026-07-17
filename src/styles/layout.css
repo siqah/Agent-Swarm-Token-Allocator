@@ -60,6 +60,11 @@
   font-size: 8px;
 }
 
+.status-indicator-red {
+  color: var(--color-danger);
+  font-size: 8px;
+}
+
 .status-divider {
   color: var(--border-strong);
   opacity: 0.5;

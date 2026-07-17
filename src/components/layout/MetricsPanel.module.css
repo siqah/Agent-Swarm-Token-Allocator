@@ -30,6 +30,38 @@
   margin: var(--space-2) 0;
 }
 
+.toggleSection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-2) var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color var(--duration-fast);
+  border-radius: var(--radius-sm);
+}
+
+.toggleSection:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.chevron {
+  font-size: 0.6rem;
+  transition: transform var(--duration-fast) var(--ease-out-quint);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
 @media (max-width: 1199px) {
   .metricsPanel {
     border-left: none;

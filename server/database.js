@@ -296,7 +296,7 @@ class Database {
     return this.data.usage;
   }
 
-  generateSwarmKey(agentId, agentName) {
+  generateSwarmKey(agentId, _agentName) {
     const suffix = Math.random().toString(36).substring(2, 8);
     return `swarm-${agentId}-${suffix}`;
   }

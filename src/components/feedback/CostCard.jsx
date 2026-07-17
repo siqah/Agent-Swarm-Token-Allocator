@@ -43,36 +43,29 @@ export function AgentCostCard({ agent, department }) {
     .trim();
 
   // Compute spend limits and actual telemetry usage percentage
-  const quotaLimit = cost?.totalTokens || 1;
+  const totalBudget = state.totalBudget || 0;
+  const quotaLimit = totalBudget * (department.allocation / 100) * (agent.allocation / 100);
   const currentUsage = state.usage?.[agent.id]?.total || 0;
-  const spendRatio = Math.min(1, currentUsage / quotaLimit);
+  const spendRatio = quotaLimit > 0 ? Math.min(1, currentUsage / quotaLimit) : 0;
   const spendPercent = Math.round(spendRatio * 1000) / 10;
+  const isOverBudget = quotaLimit > 0 && currentUsage >= quotaLimit;
 
   // Determine status dot style
   const statusColor =
+    isOverBudget ? 'var(--color-danger)' :
     alert?.level === 'danger'
-      ? 'var(--color-danger)'
-      : alert?.level === 'warning'
       ? 'var(--color-warning)'
       : 'var(--color-success)';
 
   return (
-    <div className={cardClass}>
+    <div className={`${cardClass} ${isOverBudget ? styles.cardFallback : ''}`}>
       <div className={styles.cardHeader}>
         <span className={styles.agentLabel}>
           <span
-            style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: statusColor,
-              display: 'inline-block',
-              marginRight: '6px',
-              boxShadow: `0 0 6px ${statusColor}`,
-              animation: alert?.level !== 'normal' ? 'fadeIn 1s infinite alternate' : 'none',
-            }}
+            className={styles.statusDot}
+            style={{ background: statusColor }}
           />
-          <span style={{ marginRight: '6px' }}>{agent.icon}</span>
+          <span className={styles.agentIcon}>{agent.icon}</span>
           {agent.name}
         </span>
         <span
@@ -91,28 +84,27 @@ export function AgentCostCard({ agent, department }) {
       </div>
 
       {/* Real-time horizontal spend bar */}
-      <div style={{ marginTop: 'var(--space-1)', marginBottom: 'var(--space-2)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)', marginBottom: '3px' }}>
+      <div className={styles.spendBar}>
+        <div className={styles.spendHeader}>
           <span>LIVE CONSUMPTION</span>
-          <span style={{ fontFamily: 'var(--font-mono)' }}>{formatPercent(spendPercent)}</span>
+          <span className={styles.spendPercent}>{formatPercent(spendPercent)}</span>
         </div>
-        <div style={{
-          height: '4px',
-          background: 'var(--bg-elevated)',
-          borderRadius: 'var(--radius-full)',
-          overflow: 'hidden',
-          display: 'flex',
-        }}>
-          <div style={{
-            width: '100%',
-            transform: `scaleX(${spendRatio})`,
-            transformOrigin: 'left',
-            background: alert?.level === 'danger' ? 'var(--color-danger)' : alert?.level === 'warning' ? 'var(--color-warning)' : color,
-            borderRadius: 'var(--radius-full)',
-            transition: 'transform 250ms var(--ease-out-quint)',
-          }} />
+        <div className={styles.spendTrack}>
+          <div
+            className={styles.spendFill}
+            style={{
+              transform: `scaleX(${spendRatio})`,
+              background: isOverBudget ? 'var(--color-danger)' : alert?.level === 'danger' || alert?.level === 'warning' ? 'var(--color-warning)' : color,
+            }}
+          />
         </div>
       </div>
+
+      {isOverBudget && (
+        <div className={styles.fallbackBadge}>
+          ⚡ Budget exceeded — routed to cheaper model
+        </div>
+      )}
 
       <div className={styles.subStats}>
         <div className={styles.stat}>

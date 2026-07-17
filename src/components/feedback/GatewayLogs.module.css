@@ -1,0 +1,79 @@
+.panel {
+  background: oklch(0.05 0.005 260);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  min-height: 140px;
+  max-height: 140px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: inset 0 2px 8px oklch(0 0 0 / 0.5);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.statusBadge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.dotActive {
+  background: var(--color-success);
+  box-shadow: 0 0 6px var(--color-success);
+}
+
+.dotIdle {
+  background: var(--text-muted);
+}
+
+.logList {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.logEntry {
+  line-break: anywhere;
+}
+
+.logTime {
+  color: var(--text-muted);
+  margin-right: 6px;
+}
+
+.logSuccess {
+  color: var(--text-primary);
+}
+
+.logBlocked {
+  color: var(--color-danger);
+}
+
+.logInfo {
+  color: var(--color-info);
+}

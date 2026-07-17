@@ -7,6 +7,8 @@ import { useAllocation, useAllocationDispatch, ACTIONS } from '../../context/All
 import { formatNumber } from '../../utils/formatters';
 import headerStyles from '../layout/Header.module.css';
 
+const MAX_BUDGET = 1_000_000_000_000;
+
 export default function BudgetInput() {
   const { totalBudget } = useAllocation();
   const dispatch = useAllocationDispatch();
@@ -16,7 +18,7 @@ export default function BudgetInput() {
       const raw = e.target.value.replace(/[^0-9]/g, '');
       const value = parseInt(raw, 10);
       if (!isNaN(value)) {
-        dispatch({ type: ACTIONS.SET_TOTAL_BUDGET, payload: value });
+        dispatch({ type: ACTIONS.SET_TOTAL_BUDGET, payload: Math.min(value, MAX_BUDGET) });
       }
     },
     [dispatch]
@@ -38,16 +40,16 @@ export default function BudgetInput() {
         Monthly Token Budget
       </label>
 
-      <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-        <input
-          id="budget-input"
-          type="text"
-          value={formatNumber(totalBudget)}
-          onChange={handleChange}
-          className={headerStyles.inputField}
-          aria-label="Total monthly token budget"
-        />
-      </div>
+      <input
+        id="budget-input"
+        type="text"
+        value={formatNumber(totalBudget)}
+        onChange={handleChange}
+        className={headerStyles.inputField}
+        aria-label="Total monthly token budget"
+        maxLength={15}
+        title={`Max ${formatNumber(MAX_BUDGET)}`}
+      />
 
       <div className={headerStyles.presetGroup}>
         {presets.map((preset) => (

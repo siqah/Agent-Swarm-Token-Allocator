@@ -11,10 +11,6 @@
   --bg-glass:      oklch(0.14 0.01 260 / 0.5);
   --bg-hover:      oklch(0.20 0.015 260);
 
-  /* ── Grid Pattern ───────────────────────── */
-  --grid-size:     24px;
-  --grid-pattern:  radial-gradient(circle at 1px 1px, oklch(1 0 0 / 0.03) 1px, transparent 0);
-
   /* ── Text Colors ────────────────────────── */
   --text-primary:    oklch(0.96 0.005 260);
   --text-secondary:  oklch(0.74 0.008 260);

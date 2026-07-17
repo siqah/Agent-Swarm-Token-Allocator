@@ -125,3 +125,67 @@
   margin-top: var(--space-2);
   font-family: var(--font-mono);
 }
+
+/* ── Status dot ────────────────────────── */
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.agentIcon {
+  margin-right: 2px;
+  line-height: 1;
+}
+
+/* ── Spend bar ─────────────────────────── */
+.spendBar {
+  margin-top: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.spendHeader {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+
+.spendPercent {
+  font-family: var(--font-mono);
+}
+
+.spendTrack {
+  height: 4px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.spendFill {
+  width: 100%;
+  height: 100%;
+  transform-origin: left;
+  border-radius: var(--radius-full);
+  transition: transform 250ms var(--ease-out-quint);
+}
+
+/* ── Fallback badge ────────────────────── */
+.fallbackBadge {
+  font-size: 9px;
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 25%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  text-align: center;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.02em;
+}
+
+.cardFallback {
+  border-color: oklch(0.82 0.18 80 / 0.4);
+}
