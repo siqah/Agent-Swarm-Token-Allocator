@@ -1,8 +1,3 @@
-/**
- * SankeyDiagram — The main visualization component.
- * D3 computes the layout, React renders SVG elements.
- */
-
 import { useState, useRef, useCallback, useEffect, useDeferredValue } from 'react';
 import { useAllocation } from '../../context/AllocationContext';
 import { useAlerts } from '../../hooks/useAlerts';
@@ -25,7 +20,6 @@ export default function SankeyDiagram({
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [mousePos, setMousePos] = useState(null);
 
-  // ── Responsive sizing ────────────────────
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -41,7 +35,6 @@ export default function SankeyDiagram({
     return () => observer.disconnect();
   }, []);
 
-  // ── Compute layout ──────────────────────
   const { nodes, links, sankeyLinkPath } = useSankeyLayout(
     deferredState,
     dimensions.width,
@@ -49,7 +42,6 @@ export default function SankeyDiagram({
     viewMode
   );
 
-  // ── Hover handlers ──────────────────────
   const handleNodeHover = useCallback((nodeId) => {
     onHoverNode?.(nodeId);
   }, [onHoverNode]);
@@ -63,10 +55,9 @@ export default function SankeyDiagram({
     setMousePos({ x: e.clientX, y: e.clientY });
   }, []);
 
-  // ── Determine which links are connected to hovered node ──
   const getIsHighlighted = useCallback(
     (link) => {
-      if (hoveredNodeId === null) return null; // no highlight mode
+      if (hoveredNodeId === null) return null;
       return (
         link.source.id === hoveredNodeId ||
         link.target.id === hoveredNodeId
@@ -87,10 +78,7 @@ export default function SankeyDiagram({
           height={dimensions.height}
           viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
         >
-
-
-          {/* Links (rendered first so nodes draw on top) */}
-          <g className="sankey-links">
+          <g>
             {links.map((link, i) => (
               <SankeyLink
                 key={`link-${link.source.id}-${link.target.id}-${i}`}
@@ -102,8 +90,7 @@ export default function SankeyDiagram({
             ))}
           </g>
 
-          {/* Nodes */}
-          <g className="sankey-nodes">
+          <g>
             {nodes.map((node) => {
               const alert = alerts.get(node.id);
               return (
@@ -121,12 +108,10 @@ export default function SankeyDiagram({
         </svg>
       ) : (
         <div className={styles.emptyState}>
-          <span>📊</span>
-          <span>Resize window to render the Sankey diagram</span>
+          <span>Calculating flow...</span>
         </div>
       )}
 
-      {/* Tooltip (rendered in DOM, not SVG) */}
       <SankeyTooltip node={hoveredNode} mousePosition={mousePos} />
     </div>
   );

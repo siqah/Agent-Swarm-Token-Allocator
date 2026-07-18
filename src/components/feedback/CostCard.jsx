@@ -1,5 +1,5 @@
 /**
- * CostCard — Displays per-agent cost breakdown.
+ * CostCard — Displays per-agent cost breakdown with motion animations.
  */
 
 import { useCosts } from '../../context/CostContext';
@@ -23,7 +23,7 @@ export function TotalCostCard() {
   );
 }
 
-export function AgentCostCard({ agent, department }) {
+export function AgentCostCard({ agent, department, index = 0 }) {
   const { getCost } = useCosts();
   const alerts = useAlerts();
   const state = useAllocation();
@@ -42,7 +42,6 @@ export function AgentCostCard({ agent, department }) {
     .getPropertyValue(department.colorVar)
     .trim();
 
-  // Compute spend limits and actual telemetry usage percentage
   const totalBudget = state.totalBudget || 0;
   const quotaLimit = totalBudget * (department.allocation / 100) * (agent.allocation / 100);
   const currentUsage = state.usage?.[agent.id]?.total || 0;
@@ -50,7 +49,6 @@ export function AgentCostCard({ agent, department }) {
   const spendPercent = Math.round(spendRatio * 1000) / 10;
   const isOverBudget = quotaLimit > 0 && currentUsage >= quotaLimit;
 
-  // Determine status dot style
   const statusColor =
     isOverBudget ? 'var(--color-danger)' :
     alert?.level === 'danger'
@@ -58,14 +56,16 @@ export function AgentCostCard({ agent, department }) {
       : 'var(--color-success)';
 
   return (
-    <div className={`${cardClass} ${isOverBudget ? styles.cardFallback : ''}`}>
+    <div
+      className={`${cardClass} ${styles.animateIn}`}
+      style={{ animationDelay: `${index * 50}ms` }}
+    >
       <div className={styles.cardHeader}>
         <span className={styles.agentLabel}>
           <span
             className={styles.statusDot}
             style={{ background: statusColor }}
           />
-          <span className={styles.agentIcon}>{agent.icon}</span>
           {agent.name}
         </span>
         <span
@@ -83,7 +83,6 @@ export function AgentCostCard({ agent, department }) {
         {cost ? formatCurrency(cost.totalCost) : '$0.00'}
       </div>
 
-      {/* Real-time horizontal spend bar */}
       <div className={styles.spendBar}>
         <div className={styles.spendHeader}>
           <span>LIVE CONSUMPTION</span>
@@ -114,9 +113,9 @@ export function AgentCostCard({ agent, department }) {
           </span>
         </div>
         <div className={styles.stat}>
-          <span className={styles.statLabel}>Effective</span>
+          <span className={styles.statLabel}>Used</span>
           <span className={styles.statValue}>
-            {alert ? formatPercent(alert.effectivePercent) : '0%'}
+            {formatCompact(currentUsage)}
           </span>
         </div>
         <div className={styles.stat}>

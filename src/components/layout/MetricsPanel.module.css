@@ -6,7 +6,7 @@
   background: var(--bg-deep);
   border-left: 1px solid var(--border-subtle);
   overflow-y: auto;
-  max-height: calc(100vh - 72px);
+  max-height: calc(100vh - 52px);
 }
 
 .sectionTitle {

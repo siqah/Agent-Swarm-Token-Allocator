@@ -31,7 +31,7 @@ export default function ExportButton() {
         onClick={handleDownload}
         className={styles.downloadButton}
       >
-        <span>📤</span> Export Config
+        Export Config
       </button>
 
       <button
@@ -39,7 +39,7 @@ export default function ExportButton() {
         className={`${styles.copyButton} ${copied ? styles.copied : ''}`}
         title="Copy to clipboard"
       >
-        {copied ? '✓' : '📋'}
+        {copied ? 'Copied' : 'Copy'}
       </button>
     </div>
   );

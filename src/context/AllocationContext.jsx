@@ -35,6 +35,7 @@ export const ACTIONS = {
   SET_DEPT_ALLOCATION: 'SET_DEPT_ALLOCATION',
   SET_AGENT_ALLOCATION: 'SET_AGENT_ALLOCATION',
   SET_THRESHOLDS: 'SET_THRESHOLDS',
+  RENAME_DEPT: 'RENAME_DEPT',
   RESET: 'RESET',
   SET_STATE: 'SET_STATE',
 };
@@ -153,6 +154,16 @@ function allocationReducer(state, action) {
       return {
         ...state,
         thresholds: { ...state.thresholds, ...action.payload },
+      };
+    }
+
+    case ACTIONS.RENAME_DEPT: {
+      const { deptId, name } = action.payload;
+      return {
+        ...state,
+        departments: state.departments.map((d) =>
+          d.id === deptId ? { ...d, name } : d
+        ),
       };
     }
 

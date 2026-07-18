@@ -59,6 +59,7 @@
 
 .logEntry {
   line-break: anywhere;
+  animation: slideUp 250ms var(--ease-out-quint) both;
 }
 
 .logTime {

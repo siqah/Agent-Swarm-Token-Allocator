@@ -50,7 +50,7 @@ export default function ConnectionDetails() {
           className={styles.copyUrl}
           onClick={() => handleCopyKey(GATEWAY_URL)}
         >
-          {copiedKey === GATEWAY_URL ? '✓' : '📋'}
+          {copiedKey === GATEWAY_URL ? 'Copied' : 'Copy'}
         </button>
       </div>
 
@@ -58,7 +58,7 @@ export default function ConnectionDetails() {
         {allAgents.map((agent) => (
           <div key={agent.id} className={styles.keyRow}>
             <div className={styles.keyInfo}>
-              <span className={styles.agentName}>{agent.icon} {agent.name}</span>
+              <span className={styles.agentName}>{agent.name}</span>
               <span className={styles.deptLabel}>{agent.deptName}</span>
             </div>
             <code className={styles.keyValue}>
@@ -70,7 +70,7 @@ export default function ConnectionDetails() {
                 onClick={() => handleCopyKey(agent.swarmKey)}
                 title="Copy Virtual Swarm Key"
               >
-                {copiedKey === agent.swarmKey ? '✓' : '📋'}
+                {copiedKey === agent.swarmKey ? 'Copied' : 'Copy'}
               </button>
             )}
           </div>

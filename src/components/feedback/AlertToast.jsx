@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useAlerts } from '../../hooks/useAlerts';
 import styles from './AlertToast.module.css';
 
@@ -52,20 +53,27 @@ export default function AlertToast() {
 
   return (
     <div className={styles.container}>
-      {toasts.map((toast) => (
-        <div
-          key={toast.id}
-          className={styles.toast}
-          onClick={() => dismissToast(toast.id)}
-        >
-          <span className={styles.toastIcon}>🚨</span>
-          <div>
-            <div className={styles.toastTitle}>Budget Alert</div>
-            <div className={styles.toastMessage}>{toast.message}</div>
-          </div>
-          <span className={styles.toastClose}>×</span>
-        </div>
-      ))}
+      <AnimatePresence mode="popLayout">
+        {toasts.map((toast) => (
+          <motion.div
+            key={toast.id}
+            layout
+            initial={{ opacity: 0, x: 80, scale: 0.95 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: 80, scale: 0.95 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+            className={styles.toast}
+            onClick={() => dismissToast(toast.id)}
+          >
+            <span className={styles.toastIcon}>!</span>
+            <div>
+              <div className={styles.toastTitle}>Budget Alert</div>
+              <div className={styles.toastMessage}>{toast.message}</div>
+            </div>
+            <span className={styles.toastClose}>×</span>
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   );
 }

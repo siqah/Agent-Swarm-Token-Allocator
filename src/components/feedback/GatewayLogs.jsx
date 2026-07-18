@@ -74,8 +74,8 @@ export default function GatewayLogs() {
       </div>
 
       <div className={styles.logList}>
-        {logs.map((log) => (
-          <div key={log.id} className={styles.logEntry}>
+        {logs.map((log, i) => (
+          <div key={log.id} className={styles.logEntry} style={{ animationDelay: `${i * 30}ms` }}>
             <span className={styles.logTime}>[{log.time}]</span>
             <span className={
               log.isBlocked ? styles.logBlocked :

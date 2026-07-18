@@ -139,7 +139,7 @@ function AppContent() {
       <footer className="app-footer">
         <div className="status-bar-left">
           <span className="status-item">
-            <span className={`status-indicator ${connected ? 'status-indicator-green' : 'status-indicator-red'}`}>●</span>
+            <span className={`status-indicator ${connected ? 'status-indicator-green animate-live-pulse' : 'status-indicator-red'}`}>●</span>
             GATEWAY: {connected ? 'ONLINE' : 'OFFLINE'}
           </span>
           <span className="status-divider">|</span>

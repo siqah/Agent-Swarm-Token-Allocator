@@ -6,12 +6,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  transition: border-color var(--duration-fast) var(--ease-out-quint),
-              box-shadow var(--duration-normal) var(--ease-out-quint);
+  transition: background var(--duration-fast) var(--ease-out-quint);
 }
 
 .costCard:hover {
-  border-color: var(--border-default);
+  background: var(--bg-hover);
 }
 
 /* Alert states */
@@ -97,9 +96,9 @@
     oklch(0.18 0.03 250 / 0.8),
     oklch(0.15 0.02 260)
   );
-  border: 1px solid oklch(0.75 0.12 250 / 0.2);
-  border-radius: var(--radius-xl);
-  padding: var(--space-5) var(--space-5);
+  border: 1px solid oklch(0.75 0.12 250 / 0.15);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
   text-align: center;
 }
 
@@ -126,6 +125,11 @@
   font-family: var(--font-mono);
 }
 
+/* ── Entrance animation ────────────────── */
+.animateIn {
+  animation: fadeInUp 350ms var(--ease-out-quint) both;
+}
+
 /* ── Status dot ────────────────────────── */
 .statusDot {
   width: 6px;
@@ -133,11 +137,6 @@
   border-radius: 50%;
   display: inline-block;
   flex-shrink: 0;
-}
-
-.agentIcon {
-  margin-right: 2px;
-  line-height: 1;
 }
 
 /* ── Spend bar ─────────────────────────── */

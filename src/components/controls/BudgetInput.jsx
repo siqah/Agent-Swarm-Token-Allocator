@@ -1,7 +1,3 @@
-/**
- * BudgetInput — Numeric input for the total monthly token budget.
- */
-
 import { useCallback } from 'react';
 import { useAllocation, useAllocationDispatch, ACTIONS } from '../../context/AllocationContext';
 import { formatNumber } from '../../utils/formatters';
@@ -12,6 +8,13 @@ const MAX_BUDGET = 1_000_000_000_000;
 export default function BudgetInput() {
   const { totalBudget } = useAllocation();
   const dispatch = useAllocationDispatch();
+
+  const presets = [
+    { label: '1M', value: 1_000_000, color: 'var(--color-budget)' },
+    { label: '5M', value: 5_000_000, color: 'var(--color-engineering)' },
+    { label: '10M', value: 10_000_000, color: 'var(--color-marketing)' },
+    { label: '50M', value: 50_000_000, color: 'var(--color-sales)' },
+  ];
 
   const handleChange = useCallback(
     (e) => {
@@ -24,33 +27,23 @@ export default function BudgetInput() {
     [dispatch]
   );
 
-  const presets = [
-    { label: '1M', value: 1_000_000, color: 'var(--color-budget)' },
-    { label: '5M', value: 5_000_000, color: 'var(--color-engineering)' },
-    { label: '10M', value: 10_000_000, color: 'var(--color-marketing)' },
-    { label: '50M', value: 50_000_000, color: 'var(--color-sales)' },
-  ];
-
   return (
-    <div className={headerStyles.inputWrapper}>
-      <label
-        htmlFor="budget-input"
-        className={headerStyles.inputLabel}
-      >
-        Monthly Token Budget
-      </label>
-
-      <input
-        id="budget-input"
-        type="text"
-        value={formatNumber(totalBudget)}
-        onChange={handleChange}
-        className={headerStyles.inputField}
-        aria-label="Total monthly token budget"
-        maxLength={15}
-        title={`Max ${formatNumber(MAX_BUDGET)}`}
-      />
-
+    <div>
+      <div className={headerStyles.inputGroup}>
+        <label htmlFor="budget-input" className={headerStyles.inputLabel}>
+          Budget
+        </label>
+        <input
+          id="budget-input"
+          type="text"
+          value={formatNumber(totalBudget)}
+          onChange={handleChange}
+          className={headerStyles.inputField}
+          aria-label="Total monthly token budget"
+          maxLength={15}
+          title={`Max ${formatNumber(MAX_BUDGET)}`}
+        />
+      </div>
       <div className={headerStyles.presetGroup}>
         {presets.map((preset) => (
           <button

@@ -24,7 +24,7 @@ export default function MetricsPanel() {
         className={styles.toggleSection}
         onClick={() => setShowKeys(!showKeys)}
       >
-        <span>🔑 Connection Details</span>
+        <span>Connection Details</span>
         <span className={`${styles.chevron} ${showKeys ? styles.chevronOpen : ''}`}>▶</span>
       </button>
 

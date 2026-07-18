@@ -37,7 +37,7 @@
   --color-info:     oklch(0.75 0.12 250);
 
   /* ── Borders ────────────────────────────── */
-  --border-subtle:   oklch(1 0 0 / 0.04);
+  --border-subtle:   oklch(1 0 0 / 0.025);
   --border-default:  oklch(1 0 0 / 0.08);
   --border-strong:   oklch(1 0 0 / 0.12);
 

@@ -1,8 +1,5 @@
-/**
- * SankeyLink — Renders a gradient path between two Sankey nodes.
- */
-
 import { useId } from 'react';
+import styles from './SankeyLink.module.css';
 
 export default function SankeyLink({ link, pathGenerator, isHighlighted, isSimulating }) {
   const gradientId = useId();
@@ -19,8 +16,7 @@ export default function SankeyLink({ link, pathGenerator, isHighlighted, isSimul
   const strokeWidth = Math.max(1, link.width);
 
   return (
-    <g className="sankey-link">
-      {/* Gradient definition */}
+    <g className={styles.link}>
       <defs>
         <linearGradient id={gradientId} gradientUnits="userSpaceOnUse"
           x1={link.source.x1} x2={link.target.x0}>
@@ -29,7 +25,6 @@ export default function SankeyLink({ link, pathGenerator, isHighlighted, isSimul
         </linearGradient>
       </defs>
 
-      {/* Link path */}
       <path
         d={pathD}
         fill="none"
@@ -43,7 +38,6 @@ export default function SankeyLink({ link, pathGenerator, isHighlighted, isSimul
         }}
       />
 
-      {/* Hover hit area (invisible, wider for easier mouse targeting) */}
       <path
         d={pathD}
         fill="none"
@@ -52,7 +46,6 @@ export default function SankeyLink({ link, pathGenerator, isHighlighted, isSimul
         style={{ cursor: 'pointer' }}
       />
 
-      {/* Real-time flowing token packet particle */}
       {isSimulating && strokeWidth >= 1.5 && (
         <circle r={Math.min(4, Math.max(2, strokeWidth / 3.5))} fill="#ffffff">
           <animateMotion path={pathD} dur="1.5s" repeatCount="indefinite" />

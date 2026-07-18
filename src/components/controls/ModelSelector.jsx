@@ -1,7 +1,3 @@
-/**
- * ModelSelector — Dropdown to select the OpenAI model for pricing.
- */
-
 import { useCallback } from 'react';
 import { useAllocation, useAllocationDispatch, ACTIONS } from '../../context/AllocationContext';
 import { getModelOptions } from '../../data/pricing';
@@ -20,14 +16,10 @@ export default function ModelSelector() {
   );
 
   return (
-    <div className={headerStyles.inputWrapper}>
-      <label
-        htmlFor="model-selector"
-        className={headerStyles.inputLabel}
-      >
+    <div className={headerStyles.inputGroup}>
+      <label htmlFor="model-selector" className={headerStyles.inputLabel}>
         Model
       </label>
-
       <select
         id="model-selector"
         value={selectedModel}
@@ -36,7 +28,7 @@ export default function ModelSelector() {
       >
         {models.map((model) => (
           <option key={model.id} value={model.id}>
-            {model.name} — ${model.input}/${model.output} per 1M
+            {model.name} — ${model.input}/${model.output}
           </option>
         ))}
       </select>

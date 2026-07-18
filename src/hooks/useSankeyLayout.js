@@ -64,7 +64,6 @@ export function useSankeyLayout(state, width, height, viewMode = 'allocated') {
       nodes.push({
         id: dept.id,
         name: dept.name,
-        icon: dept.icon,
         category: 'department',
         colorVar: dept.colorVar,
         allocation: dept.allocation,
@@ -79,7 +78,6 @@ export function useSankeyLayout(state, width, height, viewMode = 'allocated') {
         nodes.push({
           id: agent.id,
           name: agent.name,
-          icon: agent.icon,
           category: 'agent',
           colorVar: dept.colorVar,
           departmentId: dept.id,

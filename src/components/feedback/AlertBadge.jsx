@@ -13,7 +13,7 @@ export default function AlertBadge({ level }) {
         level === 'danger' ? styles.danger : styles.warning
       }`}
     >
-      {level === 'danger' ? '🚨' : '⚠️'}
+      {level === 'danger' ? '!!' : '!'}
     </span>
   );
 }

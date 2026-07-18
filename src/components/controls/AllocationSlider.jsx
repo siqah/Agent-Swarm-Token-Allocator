@@ -8,7 +8,7 @@ import styles from './SliderGroup.module.css';
 
 export default function AllocationSlider({
   label,
-  icon,
+
   value,
   color,
   onChange,
@@ -29,13 +29,12 @@ export default function AllocationSlider({
     <div className={styles.sliderRow}>
       {label && (
         <span className={styles.sliderLabel}>
-          {icon && `${icon} `}
           {label}
           {alertLevel === 'warning' && (
-            <span className={`${styles.alertBadge} ${styles.alertWarning}`}> ⚠️</span>
+            <span className={`${styles.alertBadge} ${styles.alertWarning}`}>!</span>
           )}
           {alertLevel === 'danger' && (
-            <span className={`${styles.alertBadge} ${styles.alertDanger}`}> 🚨</span>
+            <span className={`${styles.alertBadge} ${styles.alertDanger}`}>!</span>
           )}
         </span>
       )}

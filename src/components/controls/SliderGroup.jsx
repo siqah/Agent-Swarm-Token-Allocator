@@ -1,8 +1,4 @@
-/**
- * SliderGroup — A department with its allocation slider and nested agent sliders.
- */
-
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useAllocationDispatch } from '../../context/AllocationContext';
 import { useAlerts } from '../../hooks/useAlerts';
 import { ACTIONS } from '../../context/AllocationContext';
@@ -16,6 +12,16 @@ export default function SliderGroup({ department, onHoverNode }) {
   const alerts = useAlerts();
   const [isOpen, setIsOpen] = useState(true);
   const [copiedKey, setCopiedKey] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(department.name);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
 
   const handleCopyKey = useCallback(async (key) => {
     try {
@@ -23,7 +29,6 @@ export default function SliderGroup({ department, onHoverNode }) {
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 2000);
     } catch {
-      // Fallback for non-HTTPS environments
       const textarea = document.createElement('textarea');
       textarea.value = key;
       textarea.style.position = 'fixed';
@@ -57,21 +62,60 @@ export default function SliderGroup({ department, onHoverNode }) {
     [dispatch, department.id]
   );
 
+  const startEditing = useCallback((e) => {
+    e.stopPropagation();
+    setEditName(department.name);
+    setEditing(true);
+  }, [department.name]);
+
+  const finishEditing = useCallback(() => {
+    setEditing(false);
+    const trimmed = editName.trim();
+    if (trimmed && trimmed !== department.name) {
+      dispatch({
+        type: ACTIONS.RENAME_DEPT,
+        payload: { deptId: department.id, name: trimmed },
+      });
+    }
+  }, [editName, department.id, department.name, dispatch]);
+
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === 'Enter') {
+      e.target.blur();
+    }
+    if (e.key === 'Escape') {
+      setEditName(department.name);
+      setEditing(false);
+    }
+  }, [department.name]);
+
   const color = getComputedStyle(document.documentElement)
     .getPropertyValue(department.colorVar)
     .trim();
 
   return (
     <div className={styles.sliderGroup}>
-      {/* Department header */}
-      <div 
-        className={styles.groupHeader} 
+      <div
+        className={styles.groupHeader}
         onClick={() => setIsOpen(!isOpen)}
         onMouseEnter={() => onHoverNode?.(department.id)}
         onMouseLeave={() => onHoverNode?.(null)}
       >
-        <span className={styles.groupIcon}>{department.icon}</span>
-        <span className={styles.groupName}>{department.name}</span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            className={styles.nameInput}
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onBlur={finishEditing}
+            onKeyDown={handleKeyDown}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <span className={styles.groupName} onClick={startEditing}>
+            {department.name}
+          </span>
+        )}
         <span className={styles.groupPercent} style={{ color }}>
           {formatPercent(department.allocation)}
         </span>
@@ -80,7 +124,6 @@ export default function SliderGroup({ department, onHoverNode }) {
         </span>
       </div>
 
-      {/* Department slider — uses extracted AllocationSlider */}
       <div
         onMouseEnter={() => onHoverNode?.(department.id)}
         onMouseLeave={() => onHoverNode?.(null)}
@@ -93,20 +136,19 @@ export default function SliderGroup({ department, onHoverNode }) {
         />
       </div>
 
-      {/* Agent sliders (collapsible) */}
       {isOpen && (
         <div className={styles.agentSliders}>
-          {department.agents.map((agent) => {
+          {department.agents.map((agent, idx) => {
             const alert = alerts.get(agent.id);
             return (
-              <div key={agent.id}>
-              <div 
+              <div key={agent.id} style={{ animationDelay: `${idx * 40}ms` }}>
+              <div
                 className={styles.sliderRow}
                 onMouseEnter={() => onHoverNode?.(agent.id)}
                 onMouseLeave={() => onHoverNode?.(null)}
               >
                 <span className={styles.sliderLabel}>
-                  {agent.icon} {agent.name}
+                  {agent.name}
                   <AlertBadge level={alert?.level} />
                 </span>
 
@@ -151,7 +193,7 @@ export default function SliderGroup({ department, onHoverNode }) {
                     title={copiedKey === agent.swarmKey ? 'Copied!' : 'Copy Virtual Swarm Key'}
                   >
                     <code className={styles.swarmKeyText}>
-                      {copiedKey === agent.swarmKey ? 'Copied!' : '🔑'}
+                      {copiedKey === agent.swarmKey ? 'Copied!' : 'key'}
                     </code>
                   </button>
                 )}

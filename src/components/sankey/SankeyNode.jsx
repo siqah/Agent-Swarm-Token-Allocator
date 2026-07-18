@@ -1,8 +1,5 @@
-/**
- * SankeyNode — Renders a single node rectangle in the Sankey diagram.
- */
-
 import { formatCompact } from '../../utils/formatters';
+import styles from './SankeyNode.module.css';
 
 export default function SankeyNode({ node, alertLevel, isHovered, onHover, onLeave }) {
   const color = getComputedStyle(document.documentElement)
@@ -12,21 +9,12 @@ export default function SankeyNode({ node, alertLevel, isHovered, onHover, onLea
   const nodeHeight = Math.max(node.y1 - node.y0, 2);
   const nodeWidth = node.x1 - node.x0;
 
-  const glowClass =
-    alertLevel === 'danger'
-      ? 'node-danger'
-      : alertLevel === 'warning'
-      ? 'node-warning'
-      : '';
-
   return (
     <g
-      className={`sankey-node ${glowClass}`}
+      className={styles.node}
       onMouseEnter={() => onHover(node.id)}
       onMouseLeave={onLeave}
-      style={{ cursor: 'pointer' }}
     >
-      {/* Glow effect behind the node */}
       {alertLevel !== 'normal' && (
         <rect
           x={node.x0 - 3}
@@ -48,7 +36,6 @@ export default function SankeyNode({ node, alertLevel, isHovered, onHover, onLea
         </rect>
       )}
 
-      {/* Soft colored ambient glow on hover */}
       {isHovered && (
         <rect
           x={node.x0 - 4}
@@ -62,7 +49,6 @@ export default function SankeyNode({ node, alertLevel, isHovered, onHover, onLea
         />
       )}
 
-      {/* Glassmorphic base container */}
       <rect
         x={node.x0}
         y={node.y0}
@@ -78,7 +64,6 @@ export default function SankeyNode({ node, alertLevel, isHovered, onHover, onLea
         }}
       />
 
-      {/* Edge indicator status bar */}
       <rect
         x={node.column === 2 ? node.x0 : node.x1 - 3}
         y={node.y0}
@@ -93,7 +78,6 @@ export default function SankeyNode({ node, alertLevel, isHovered, onHover, onLea
         }}
       />
 
-      {/* Node label */}
       {nodeHeight > 20 && (
         <text
           x={node.column === 2 ? node.x1 + 8 : node.x0 - 8}
@@ -106,12 +90,10 @@ export default function SankeyNode({ node, alertLevel, isHovered, onHover, onLea
           fontWeight="500"
           style={{ pointerEvents: 'none', letterSpacing: '0.04em', textTransform: 'uppercase' }}
         >
-          {node.icon && `${node.icon} `}
           {node.name}
         </text>
       )}
 
-      {/* Token count below label */}
       {nodeHeight > 30 && node.value && (
         <text
           x={node.column === 2 ? node.x1 + 8 : node.x0 - 8}
