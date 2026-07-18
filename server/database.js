@@ -110,7 +110,8 @@ const DEFAULTS = {
     'reporting': { input: 0, output: 0, total: 0 }
   },
   simulationActive: false,
-  swarmKeys: {}
+  swarmKeys: {},
+  providerKeys: {}
 };
 
 class Database {
@@ -183,6 +184,7 @@ class Database {
         this.data.thresholds = stored.thresholds || this.data.thresholds;
         this.data.simulationActive = stored.simulationActive ?? false;
         this.data.swarmKeys = stored.swarmKeys || {};
+        this.data.providerKeys = stored.providerKeys || {};
       } else {
         await this.saveConfigToPostgres();
       }
@@ -213,7 +215,8 @@ class Database {
         departments: this.data.departments,
         thresholds: this.data.thresholds,
         simulationActive: this.data.simulationActive,
-        swarmKeys: this.data.swarmKeys
+        swarmKeys: this.data.swarmKeys,
+        providerKeys: this.data.providerKeys || {},
       };
       await this.pool.query(
         "INSERT INTO config (key, value) VALUES ('main', $1) ON CONFLICT (key) DO UPDATE SET value = $1",
@@ -241,6 +244,10 @@ class Database {
       this.data.swarmKeys = {};
     }
     await this.ensureSwarmKeys();
+  }
+
+  afterInit() {
+    // Called by external code after DB init to sync provider keys
   }
 
   saveJson() {
@@ -390,6 +397,79 @@ class Database {
 
   getAgentBySwarmKey(key) {
     return this.data.swarmKeys[key] || null;
+  }
+
+  // ── Budget overrides on swarm keys ──────────
+  async setKeyBudgetOverride(key, budgetOverride) {
+    return this._mutex.withLock(async () => {
+      const info = this.data.swarmKeys[key];
+      if (!info) return null;
+      info.budgetOverride = budgetOverride;
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return { key, ...info };
+    });
+  }
+
+  async removeKeyBudgetOverride(key) {
+    return this._mutex.withLock(async () => {
+      const info = this.data.swarmKeys[key];
+      if (!info) return null;
+      delete info.budgetOverride;
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return { key, ...info };
+    });
+  }
+
+  // ── Provider key management ─────────────────
+  async setProviderKey(providerName, apiKey) {
+    return this._mutex.withLock(async () => {
+      if (!this.data.providerKeys) this.data.providerKeys = {};
+      if (!this.data.providerKeys[providerName]) this.data.providerKeys[providerName] = [];
+
+      // Don't duplicate
+      if (!this.data.providerKeys[providerName].includes(apiKey)) {
+        this.data.providerKeys[providerName].push(apiKey);
+      }
+
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return { provider: providerName, keyCount: this.data.providerKeys[providerName].length };
+    });
+  }
+
+  async removeProviderKey(providerName, apiKey) {
+    return this._mutex.withLock(async () => {
+      const keys = this.data.providerKeys?.[providerName];
+      if (!keys) return null;
+      const idx = keys.indexOf(apiKey);
+      if (idx === -1) return null;
+      keys.splice(idx, 1);
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return { provider: providerName, removed: true };
+    });
+  }
+
+  async getProviderKeys(providerName) {
+    return this.data.providerKeys?.[providerName] || [];
+  }
+
+  async listProviderKeys() {
+    return this.data.providerKeys || {};
   }
 
   async regenerateSwarmKeys() {

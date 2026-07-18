@@ -4,12 +4,22 @@ const BASE = 'https://api.groq.com/openai/v1';
 
 export const name = 'groq';
 
+const KEY_STORE_KEY = 'groq';
+
 export function isAvailable() {
-  return !!process.env.GROQ_API_KEY;
+  return getKeys().length > 0;
+}
+
+export function getKeys() {
+  if (global.__providerKeys && global.__providerKeys[KEY_STORE_KEY]) {
+    return global.__providerKeys[KEY_STORE_KEY];
+  }
+  const env = process.env.GROQ_API_KEY;
+  return env ? [env] : [];
 }
 
 export function getApiKey() {
-  return process.env.GROQ_API_KEY;
+  return getKeys()[0];
 }
 
 const MODEL_MAP = {
@@ -23,16 +33,18 @@ function mapModel(model) {
   return MODEL_MAP[model] || model;
 }
 
-export async function call({ model, messages, temperature, max_tokens, signal }) {
+export async function call({ model, messages, temperature, max_tokens, signal, key }) {
   const body = { model: mapModel(model), messages };
   if (temperature !== undefined) body.temperature = temperature;
   if (max_tokens !== undefined) body.max_tokens = max_tokens;
+
+  const apiKey = key || getApiKey();
 
   const response = await fetch(`${BASE}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${getApiKey()}`,
+      'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
     signal,
@@ -60,7 +72,7 @@ export async function call({ model, messages, temperature, max_tokens, signal })
   };
 }
 
-export async function* stream({ model, messages, temperature, max_tokens, signal }) {
+export async function* stream({ model, messages, temperature, max_tokens, signal, key }) {
   const body = {
     model: mapModel(model),
     messages,
@@ -69,11 +81,13 @@ export async function* stream({ model, messages, temperature, max_tokens, signal
   if (temperature !== undefined) body.temperature = temperature;
   if (max_tokens !== undefined) body.max_tokens = max_tokens;
 
+  const apiKey = key || getApiKey();
+
   const response = await fetch(`${BASE}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${getApiKey()}`,
+      'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
     signal,

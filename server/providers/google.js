@@ -4,12 +4,22 @@ const BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 export const name = 'google';
 
+const KEY_STORE_KEY = 'google';
+
 export function isAvailable() {
-  return !!process.env.GOOGLE_API_KEY;
+  return getKeys().length > 0;
+}
+
+export function getKeys() {
+  if (global.__providerKeys && global.__providerKeys[KEY_STORE_KEY]) {
+    return global.__providerKeys[KEY_STORE_KEY];
+  }
+  const env = process.env.GOOGLE_API_KEY;
+  return env ? [env] : [];
 }
 
 export function getApiKey() {
-  return process.env.GOOGLE_API_KEY;
+  return getKeys()[0];
 }
 
 const MODEL_MAP = {
@@ -41,8 +51,9 @@ function getSystemInstruction(messages) {
   return system ? { parts: [{ text: system }] } : undefined;
 }
 
-export async function call({ model, messages, temperature, max_tokens, signal }) {
-  const url = `${BASE}/models/${mapModel(model)}:generateContent?key=${getApiKey()}`;
+export async function call({ model, messages, temperature, max_tokens, signal, key }) {
+  const apiKey = key || getApiKey();
+  const url = `${BASE}/models/${mapModel(model)}:generateContent?key=${apiKey}`;
 
   const body = {
     contents: toGeminiContent(messages),
@@ -88,8 +99,9 @@ export async function call({ model, messages, temperature, max_tokens, signal })
   };
 }
 
-export async function* stream({ model, messages, temperature, max_tokens, signal }) {
-  const url = `${BASE}/models/${mapModel(model)}:streamGenerateContent?alt=sse&key=${getApiKey()}`;
+export async function* stream({ model, messages, temperature, max_tokens, signal, key }) {
+  const apiKey = key || getApiKey();
+  const url = `${BASE}/models/${mapModel(model)}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
   const body = {
     contents: toGeminiContent(messages),

@@ -78,3 +78,7 @@
 .logInfo {
   color: var(--color-info);
 }
+
+.logCache {
+  color: oklch(0.7 0.15 120);
+}

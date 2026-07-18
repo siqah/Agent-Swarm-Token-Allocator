@@ -4,12 +4,22 @@ const BASE = 'https://api.anthropic.com/v1';
 
 export const name = 'anthropic';
 
+const KEY_STORE_KEY = 'anthropic';
+
 export function isAvailable() {
-  return !!process.env.ANTHROPIC_API_KEY;
+  return getKeys().length > 0;
+}
+
+export function getKeys() {
+  if (global.__providerKeys && global.__providerKeys[KEY_STORE_KEY]) {
+    return global.__providerKeys[KEY_STORE_KEY];
+  }
+  const env = process.env.ANTHROPIC_API_KEY;
+  return env ? [env] : [];
 }
 
 export function getApiKey() {
-  return process.env.ANTHROPIC_API_KEY;
+  return getKeys()[0];
 }
 
 function toAnthropicMessages(messages) {
@@ -36,17 +46,19 @@ function mapModel(model) {
   return MODEL_MAP[model] || model;
 }
 
-export async function call({ model, messages, temperature, max_tokens, signal }) {
+export async function call({ model, messages, temperature, max_tokens, signal, key }) {
   const { system, messages: msgs } = toAnthropicMessages(messages);
   const body = { model: mapModel(model), max_tokens: max_tokens || 4096, messages: msgs };
   if (system) body.system = system;
   if (temperature !== undefined) body.temperature = temperature;
 
+  const apiKey = key || getApiKey();
+
   const response = await fetch(`${BASE}/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': getApiKey(),
+      'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify(body),
@@ -78,17 +90,19 @@ export async function call({ model, messages, temperature, max_tokens, signal })
   };
 }
 
-export async function* stream({ model, messages, temperature, max_tokens, signal }) {
+export async function* stream({ model, messages, temperature, max_tokens, signal, key }) {
   const { system, messages: msgs } = toAnthropicMessages(messages);
   const body = { model: mapModel(model), max_tokens: max_tokens || 4096, messages: msgs, stream: true };
   if (system) body.system = system;
   if (temperature !== undefined) body.temperature = temperature;
 
+  const apiKey = key || getApiKey();
+
   const response = await fetch(`${BASE}/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': getApiKey(),
+      'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify(body),

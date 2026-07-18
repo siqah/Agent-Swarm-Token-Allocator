@@ -5,6 +5,9 @@ import * as groq from './groq.js';
 
 const PROVIDERS = [openai, anthropic, google, groq];
 
+// Round-robin key index per provider
+const keyIndex = {};
+
 // Which provider handles which model prefix
 const MODEL_ROUTES = [
   { prefix: 'gpt-', provider: openai.name },
@@ -21,6 +24,32 @@ function findProvider(name) {
   return PROVIDERS.find((p) => p.name === name);
 }
 
+// Sync provider keys from database into the global registry
+export function syncProviderKeys(db) {
+  const stored = db.get()?.providerKeys || {};
+  global.__providerKeys = {};
+  for (const provider of PROVIDERS) {
+    const name = provider.name;
+    // DB keys first, then env var fallback
+    const dbKeys = stored[name] || [];
+    const envKey = process.env[`${name.toUpperCase()}_API_KEY`];
+    const allKeys = [...dbKeys];
+    if (envKey && !allKeys.includes(envKey)) allKeys.push(envKey);
+    global.__providerKeys[name] = allKeys;
+  }
+}
+
+// Select a key for the provider using round-robin
+export function selectKey(providerName) {
+  const keys = global.__providerKeys?.[providerName] || [];
+  if (keys.length === 0) return null;
+  if (keys.length === 1) return keys[0];
+  if (!keyIndex[providerName]) keyIndex[providerName] = 0;
+  const idx = keyIndex[providerName] % keys.length;
+  keyIndex[providerName] = (idx + 1) % keys.length;
+  return keys[idx];
+}
+
 export function getProviderForModel(model) {
   for (const route of MODEL_ROUTES) {
     if (model.startsWith(route.prefix)) {
@@ -34,7 +63,10 @@ export function getProviderForModel(model) {
 }
 
 export function getAvailableProviders() {
-  return PROVIDERS.filter((p) => p.isAvailable()).map((p) => p.name);
+  return PROVIDERS.filter((p) => p.isAvailable()).map((p) => {
+    const keys = global.__providerKeys?.[p.name] || [];
+    return { name: p.name, keyCount: keys.length };
+  });
 }
 
 // Fallback chain across providers: resolves a model string to a provider,

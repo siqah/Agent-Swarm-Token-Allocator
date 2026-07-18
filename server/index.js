@@ -12,6 +12,9 @@ import {
   incrementBudgetBlocked, incrementFallbacks, incrementUpstreamErrors,
   incrementSimulationTicks,
 } from './metrics.js';
+import { checkCache, setCache, clearCache, getCacheStats } from './cache.js';
+import { recordRequest, getLogs, clearLogs } from './requestLog.js';
+import { syncProviderKeys, getProviderForModel, getAvailableProviders, getFallbackChain, selectKey } from './providers/index.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
@@ -111,7 +114,7 @@ function errorHandler(err, req, res, _next) {
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || null;
 const OPENAI_TIMEOUT = parseInt(process.env.OPENAI_TIMEOUT, 10) || 60000;
 
-import { getProviderForModel, getAvailableProviders, getFallbackChain } from './providers/index.js';
+
 
 const MODEL_PRICING = {
   'gpt-5.6-sol':   { input: 5.00, output: 30.00 },
@@ -251,7 +254,7 @@ if (db.get().simulationActive) {
 }
 
 // ── Core Chat Completion Logic ───────────────
-async function processChatCompletion({ agentId, deptId, model, messages, temperature, max_tokens, stream, _originalModel, _fallbackActive }) {
+async function processChatCompletion({ agentId, deptId, model, messages, temperature, max_tokens, stream, budgetOverride, _apiKey, _providerName, _originalModel, _fallbackActive }) {
   const currentDb = db.get();
   const originalModel = _originalModel || model;
 
@@ -269,9 +272,10 @@ async function processChatCompletion({ agentId, deptId, model, messages, tempera
     };
   }
 
-  const agentTokenLimit = computeTokenAllocation(
-    currentDb.totalBudget, dept.allocation, agent.allocation
-  );
+  // Use budgetOverride if set on the swarm key, otherwise compute from config
+  const agentTokenLimit = budgetOverride != null
+    ? budgetOverride
+    : computeTokenAllocation(currentDb.totalBudget, dept.allocation, agent.allocation);
 
   // Budget check with cascade fallback
   const status = getUsageStatus(currentDb, agentId, agentTokenLimit, model);
@@ -306,11 +310,11 @@ async function processChatCompletion({ agentId, deptId, model, messages, tempera
 
     try {
       if (stream) {
-        const gen = provider.stream({ model, messages, temperature, max_tokens, signal: controller.signal });
+        const gen = provider.stream({ model, messages, temperature, max_tokens, signal: controller.signal, key: _apiKey });
         return { statusCode: 200, stream: gen, agentId, agentName: agent.name, originalModel, fallbackActive: _fallbackActive };
       }
 
-      const data = await provider.call({ model, messages, temperature, max_tokens, signal: controller.signal });
+      const data = await provider.call({ model, messages, temperature, max_tokens, signal: controller.signal, key: _apiKey });
       clearTimeout(timeout);
 
       if (data.usage) {
@@ -327,6 +331,7 @@ async function processChatCompletion({ agentId, deptId, model, messages, tempera
         model: data.model,
         choices: data.choices,
         usage: data.usage,
+        _provider: _providerName || provider.name,
       };
 
       if (_fallbackActive) {
@@ -463,6 +468,7 @@ app.get('/api/init', (req, res) => {
 
 // 1. LLM Chat completions — OpenAI SDK compatible
 app.post('/v1/chat/completions', validate(chatCompletionSchema), async (req, res) => {
+  const startTime = Date.now();
   const authHeader = req.headers['authorization'];
   let swarmKey = null;
 
@@ -487,6 +493,29 @@ app.post('/v1/chat/completions', validate(chatCompletionSchema), async (req, res
 
   const { model, messages, stream, temperature, max_tokens } = req.validatedBody;
 
+  // 1a. Check semantic cache (non-streaming only)
+  const cacheResult = !stream ? checkCache(model, messages) : { hit: false };
+  if (cacheResult.hit) {
+    res.set('X-Cache', cacheResult.type);
+    res.set('X-Cache-Similarity', cacheResult.similarity?.toFixed(3));
+    incrementTokens(cacheResult.response.usage?.total_tokens || 0);
+    recordRequest({
+      id: req.id, agentId: agentInfo.agentId, agentName: agentInfo.name, deptId: agentInfo.deptId,
+      model, provider: 'cache', promptTokens: cacheResult.response.usage?.prompt_tokens || 0,
+      completionTokens: cacheResult.response.usage?.completion_tokens || 0,
+      totalTokens: cacheResult.response.usage?.total_tokens || 0,
+      latencyMs: Date.now() - startTime, statusCode: 200, cached: true, cacheType: cacheResult.type,
+    });
+    return res.status(200).json(cacheResult.response);
+  }
+
+  // 1b. Select load-balanced key
+  const provider = getProviderForModel(model);
+  const apiKey = provider ? selectKey(provider.name) : null;
+
+  // 1c. Pass budget override if set on the swarm key
+  const budgetOverride = agentInfo.budgetOverride || null;
+
   const result = await processChatCompletion({
     agentId: agentInfo.agentId,
     deptId: agentInfo.deptId,
@@ -495,9 +524,17 @@ app.post('/v1/chat/completions', validate(chatCompletionSchema), async (req, res
     temperature,
     max_tokens,
     stream: !!stream,
+    budgetOverride,
+    _apiKey: apiKey,
+    _providerName: provider?.name || 'mock',
   });
 
   if (result.error) {
+    recordRequest({
+      id: req.id, agentId: agentInfo.agentId, agentName: agentInfo.name, deptId: agentInfo.deptId,
+      model, provider: provider?.name || 'mock', latencyMs: Date.now() - startTime,
+      statusCode: result.statusCode || 400, error: result.error.message,
+    });
     return res.status(result.statusCode || 400).json({ error: result.error });
   }
 
@@ -511,6 +548,26 @@ app.post('/v1/chat/completions', validate(chatCompletionSchema), async (req, res
     });
     return await pipeStreamToResponse(result.stream, res, result.agentId, result.agentName, result.originalModel, result.fallbackActive);
   }
+
+  // 1d. Store in cache (non-streaming only)
+  if (!stream) {
+    setCache(model, messages, {
+      id: result.id, object: 'chat.completion', created: result.created,
+      model: result.model, choices: result.choices, usage: result.usage,
+    });
+  }
+
+  // 1e. Record request log
+  recordRequest({
+    id: req.id, agentId: agentInfo.agentId, agentName: agentInfo.name, deptId: agentInfo.deptId,
+    deptName: agentInfo.deptName,
+    model: result.model, provider: result._provider || provider?.name || 'mock',
+    promptTokens: result.usage?.prompt_tokens || 0,
+    completionTokens: result.usage?.completion_tokens || 0,
+    totalTokens: result.usage?.total_tokens || 0,
+    latencyMs: Date.now() - startTime, statusCode: 200,
+    fallback: !!result._fallback, fallbackFrom: result._requested_model || null,
+  });
 
   if (result._fallback) {
     res.set('X-Fallback-From', result._requested_model);
@@ -660,6 +717,117 @@ app.post('/api/keys/regenerate', controlPlaneLimiter, requireControlAuth, async 
   }
 });
 
+// 7. Budget overrides on swarm keys
+app.put('/api/keys/:key/budget', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const { budgetOverride } = req.body;
+    if (budgetOverride != null && (typeof budgetOverride !== 'number' || budgetOverride < 0)) {
+      return res.status(400).json({
+        error: { message: 'budgetOverride must be a non-negative number or null.', type: 'invalid_request_error', code: 'validation_error' }
+      });
+    }
+    const result = await db.setKeyBudgetOverride(req.params.key, budgetOverride);
+    if (!result) {
+      return res.status(404).json({
+        error: { message: 'Swarm key not found.', type: 'invalid_request_error', code: 'not_found' }
+      });
+    }
+    res.status(200).json({ success: true, key: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/api/keys/:key/budget', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const result = await db.removeKeyBudgetOverride(req.params.key);
+    if (!result) {
+      return res.status(404).json({
+        error: { message: 'Swarm key not found.', type: 'invalid_request_error', code: 'not_found' }
+      });
+    }
+    res.status(200).json({ success: true, key: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 8. Provider key management
+app.get('/api/providers', controlPlaneLimiter, requireControlAuth, (req, res) => {
+  const providers = getAvailableProviders();
+  res.status(200).json({ providers });
+});
+
+app.get('/api/providers/:name/keys', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const keys = await db.getProviderKeys(req.params.name);
+    res.status(200).json({ provider: req.params.name, keys: keys.map(() => '••••••••') });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/providers/:name/keys', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const { key } = req.body;
+    if (!key) {
+      return res.status(400).json({
+        error: { message: 'key is required.', type: 'invalid_request_error', code: 'missing_fields' }
+      });
+    }
+    const result = await db.setProviderKey(req.params.name, key);
+    syncProviderKeys(db);
+    res.status(201).json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/api/providers/:name/keys', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const { key } = req.body;
+    if (!key) {
+      return res.status(400).json({
+        error: { message: 'key is required.', type: 'invalid_request_error', code: 'missing_fields' }
+      });
+    }
+    const result = await db.removeProviderKey(req.params.name, key);
+    if (!result) {
+      return res.status(404).json({
+        error: { message: 'Key not found for this provider.', type: 'invalid_request_error', code: 'not_found' }
+      });
+    }
+    syncProviderKeys(db);
+    res.status(200).json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 9. Cache management
+app.get('/api/cache', controlPlaneLimiter, requireControlAuth, (req, res) => {
+  res.status(200).json(getCacheStats());
+});
+
+app.delete('/api/cache', controlPlaneLimiter, requireControlAuth, (req, res) => {
+  clearCache();
+  res.status(200).json({ success: true, message: 'Cache cleared.' });
+});
+
+// 10. Request logs
+app.get('/api/logs', controlPlaneLimiter, requireControlAuth, (req, res) => {
+  const limit = parseInt(req.query.limit, 10) || 50;
+  const offset = parseInt(req.query.offset, 10) || 0;
+  const { agentId, deptId } = req.query;
+  const logs = getLogs({ limit, offset, agentId, deptId });
+  res.status(200).json(logs);
+});
+
+app.delete('/api/logs', controlPlaneLimiter, requireControlAuth, (req, res) => {
+  clearLogs();
+  res.status(200).json({ success: true, message: 'Logs cleared.' });
+});
+
 // ── Error handler middleware (must be last) ──
 app.use(errorHandler);
 
@@ -713,6 +881,9 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled rejection:', reason);
 });
+
+// ── Sync provider keys from DB ─────────────
+syncProviderKeys(db);
 
 // ── Startup ──────────────────────────────────
 if (!process.env.TEST_MODE) {
