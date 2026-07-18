@@ -1,20 +1,68 @@
-/**
- * index.js — LLM API Gateway Proxy and Control API.
- * Intercepts calls, checks budget limits, logs real-time tokens.
- */
-
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { db } from './database.js';
+import { logger } from './logger.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// ── Security Middleware ──────────────────────
+app.use(helmet());
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '64kb' }));
 
-// Load OpenAI API Key from environment if available
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: { message: 'Too many requests. Try again in a moment.', type: 'rate_limit_error', code: 'rate_limited' }
+  }
+});
+
+const controlPlaneLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/v1/', apiLimiter);
+
+const CONTROL_PLANE_TOKEN = process.env.CONTROL_PLANE_TOKEN ||
+  `ctrl-${Math.random().toString(36).substring(2, 10)}`;
+
+function requireControlAuth(req, res, next) {
+  const auth = req.headers['authorization'];
+  const token = auth && auth.startsWith('Bearer ') ? auth.substring(7) : null;
+  if (token !== CONTROL_PLANE_TOKEN) {
+    return res.status(401).json({
+      error: { message: 'Unauthorized. Provide a valid control plane token.', type: 'authentication_error', code: 'unauthorized' }
+    });
+  }
+  next();
+}
+
+logger.info(`Control plane token (set CONTROL_PLANE_TOKEN env var to customize): ${CONTROL_PLANE_TOKEN}`);
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || null;
+
+const MODEL_PRICING = {
+  'gpt-5.6-sol':   { input: 5.00, output: 30.00 },
+  'gpt-5.6-terra': { input: 2.50, output: 15.00 },
+  'gpt-5.6-luna':  { input: 1.00, output: 6.00 },
+  'gpt-5.4-nano':  { input: 0.20, output: 1.25 },
+};
+
+const FALLBACK_CHAIN = ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.4-nano'];
+
+function estimateCost(modelId, inputTokens, outputTokens) {
+  const p = MODEL_PRICING[modelId] || MODEL_PRICING['gpt-5.6-terra'];
+  return (inputTokens / 1_000_000) * p.input + (outputTokens / 1_000_000) * p.output;
+}
 
 // ── Background Simulator Loop ────────────────
 let simulationInterval = null;
@@ -41,34 +89,23 @@ const MOCK_RESPONSES = [
   "Q2 token spending report generated. Marketing has spent 82% of its allocation."
 ];
 
-/**
- * Direct simulator worker.
- * Runs inside the server process to simulate agent traffic without external network dependencies.
- */
 async function runSimulationTick() {
   const currentDb = db.get();
   const allAgents = [];
 
   currentDb.departments.forEach((dept) => {
     dept.agents.forEach((agent) => {
-      allAgents.push({
-        id: agent.id,
-        name: agent.name,
-        deptId: dept.id,
-        deptName: dept.name,
-      });
+      allAgents.push({ id: agent.id, name: agent.name, deptId: dept.id, deptName: dept.name });
     });
   });
 
   if (allAgents.length === 0) return;
 
-  // Pick a random agent to make a request
   const agent = allAgents[Math.floor(Math.random() * allAgents.length)];
   const prompt = MOCK_PROMPTS[Math.floor(Math.random() * MOCK_PROMPTS.length)];
 
-  console.log(`[Sim] Agent '${agent.name}' (${agent.deptName}) sending request...`);
+  logger.info(`[Sim] Agent '${agent.name}' (${agent.deptName}) sending request...`);
 
-  // Simulate completion call
   const result = await processChatCompletion({
     agentId: agent.id,
     deptId: agent.deptId,
@@ -77,18 +114,18 @@ async function runSimulationTick() {
   });
 
   if (result.error) {
-    console.warn(`[Sim Limit] Agent '${agent.name}' BLOCKED: ${result.error.message}`);
+    logger.warn(`[Sim Limit] Agent '${agent.name}' BLOCKED: ${result.error.message}`);
   } else {
     const fallbackNote = result._fallback ? ` (fallback from ${result._requested_model} to ${result.model})` : '';
-    console.log(`[Sim Success] Agent '${agent.name}' consumed ${result.usage.total_tokens} tokens on ${result.model}.${fallbackNote}`);
+    logger.info(`[Sim Success] Agent '${agent.name}' consumed ${result.usage.total_tokens} tokens on ${result.model}.${fallbackNote}`);
   }
 }
 
 function startInternalSimulation() {
   if (simulationInterval) clearInterval(simulationInterval);
-  simulationInterval = setInterval(runSimulationTick, 1000); // 1 tick per second
+  simulationInterval = setInterval(runSimulationTick, 1000);
   db.setSimulationActive(true);
-  console.log('Background Swarm Simulation started.');
+  logger.info('Background Swarm Simulation started.');
 }
 
 function stopInternalSimulation() {
@@ -97,26 +134,17 @@ function stopInternalSimulation() {
     simulationInterval = null;
   }
   db.setSimulationActive(false);
-  console.log('Background Swarm Simulation stopped.');
+  logger.info('Background Swarm Simulation stopped.');
 }
 
-// Restart simulation on startup if DB states it was active
 if (db.get().simulationActive) {
   startInternalSimulation();
 }
 
-
-// ── Model Fallback Chain ─────────────────────
-const FALLBACK_CHAIN = ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.4-nano'];
-
-/**
- * Shared logic for checking limits, generating mock completion, or calling OpenAI,
- * and saving token usage statistics.
- */
+// ── Core Chat Completion Logic ───────────────
 async function processChatCompletion({ agentId, deptId, model, messages, _originalModel, _fallbackActive }) {
   const currentDb = db.get();
 
-  // Find department & agent configuration to verify budget limit
   const dept = currentDb.departments.find((d) => d.id === deptId);
   const agent = dept?.agents.find((a) => a.id === agentId);
 
@@ -124,7 +152,7 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
     return {
       statusCode: 400,
       error: {
-        message: `Unknown agent '${agentId}' or department '${deptId}'. Check config headers.`,
+        message: `Unknown agent '${agentId}' or department '${deptId}'.`,
         type: 'invalid_request_error',
         code: 'invalid_agent_info'
       }
@@ -133,86 +161,78 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
 
   const originalModel = _originalModel || model;
 
-  // Calculate agent monthly budget limit in tokens
-  const agentLimit = currentDb.totalBudget * (dept.allocation / 100) * (agent.allocation / 100);
-  
-  // Calculate current usage
+  const agentTokenLimit = currentDb.totalBudget * (dept.allocation / 100) * (agent.allocation / 100);
   const currentUsage = currentDb.usage[agentId]?.total || 0;
 
-  // Budget exceeded check — try model fallback first
-  if (currentUsage >= agentLimit) {
+  const budgetCost = estimateCost(model, agentTokenLimit, agentTokenLimit);
+  const usageCost = estimateCost(model, currentUsage, currentUsage);
+
+  if (usageCost >= budgetCost) {
     const idx = FALLBACK_CHAIN.indexOf(model);
     if (idx >= 0 && idx < FALLBACK_CHAIN.length - 1) {
       const fallbackModel = FALLBACK_CHAIN[idx + 1];
-      console.log(`[Fallback] Agent '${agent.name}': ${model} over budget, falling back to ${fallbackModel}`);
-      return processChatCompletion({
-        agentId,
-        deptId,
-        model: fallbackModel,
-        messages,
-        _originalModel: originalModel,
-        _fallbackActive: true
-      });
+      const fallbackBudgetCost = estimateCost(fallbackModel, agentTokenLimit, agentTokenLimit);
+      const fallbackUsageCost = estimateCost(fallbackModel, currentUsage, currentUsage);
+
+      if (fallbackUsageCost < fallbackBudgetCost) {
+        logger.info(`[Fallback] Agent '${agent.name}': ${model} over budget, falling back to ${fallbackModel}`);
+        return processChatCompletion({
+          agentId, deptId, model: fallbackModel, messages,
+          _originalModel: originalModel, _fallbackActive: true
+        });
+      }
     }
 
-    // Even the cheapest model is over budget
     return {
       statusCode: 429,
       error: {
-        message: `Budget Exceeded: Agent '${agent.name}' has consumed ${currentUsage.toLocaleString()} tokens, exceeding its allocated budget limit of ${Math.round(agentLimit).toLocaleString()} tokens.`,
+        message: `Budget Exceeded: Agent '${agent.name}' has used $${usageCost.toFixed(2)} of its $${budgetCost.toFixed(2)} budget.`,
         type: 'insufficient_budget',
         code: 'budget_exceeded'
       }
     };
   }
 
-  // ── Forward to Real OpenAI ─────────────────
   if (OPENAI_API_KEY) {
     try {
+      const requestBody = { model, messages };
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${OPENAI_API_KEY}`
         },
-        body: JSON.stringify({ model, messages, stream: false })
+        body: JSON.stringify(requestBody)
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        console.error(`[OpenAI Error] ${response.status}:`, data.error);
+        logger.error(`[OpenAI Error] ${response.status}:`, data.error);
         return { statusCode: response.status, error: data.error };
       }
 
-      // Record actual token usage from OpenAI response
       if (data.usage) {
         db.recordUsage(agentId, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
-        console.log(`[OpenAI] Agent '${agent.name}' consumed ${data.usage.total_tokens} tokens on ${model}.`);
+        logger.info(`[OpenAI] Agent '${agent.name}' consumed ${data.usage.total_tokens} tokens on ${model}.`);
       }
 
-      // Annotate fallback info
       if (_fallbackActive) {
         data._fallback = true;
         data._requested_model = originalModel;
-        console.log(`[Fallback] Agent '${agent.name}' was routed from ${originalModel} to ${model}.`);
       }
 
       return { statusCode: 200, ...data };
     } catch (err) {
-      console.error('OpenAI API call failed:', err);
+      logger.error('OpenAI API call failed:', err);
       return {
         statusCode: 502,
-        error: {
-          message: 'OpenAI API request failed. Check your OPENAI_API_KEY and network connectivity.',
-          type: 'api_error',
-          code: 'upstream_error'
-        }
+        error: { message: 'OpenAI API request failed. Check network connectivity.', type: 'api_error', code: 'upstream_error' }
       };
     }
   }
 
-  // ── Mock Fallback (when no real API key) ────
+  // Mock Fallback
   const promptTokens = Math.floor(Math.random() * 800) + 200;
   const completionTokens = Math.floor(Math.random() * 1200) + 300;
   const totalTokens = promptTokens + completionTokens;
@@ -230,10 +250,7 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
     choices: [
       {
         index: 0,
-        message: {
-          role: 'assistant',
-          content: responseText
-        },
+        message: { role: 'assistant', content: responseText },
         finish_reason: 'stop'
       }
     ],
@@ -247,7 +264,6 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
   if (_fallbackActive) {
     result._fallback = true;
     result._requested_model = originalModel;
-    console.log(`[Fallback] Agent '${agent.name}' was routed from ${originalModel} to ${model} (mock).`);
   }
 
   return result;
@@ -256,12 +272,26 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
 
 // ── Endpoints ────────────────────────────────
 
-// 1. LLM Chat completions gateway — OpenAI SDK Compatible
-// Developers connect by setting:
-//   baseURL: 'http://localhost:3000/v1'
-//   apiKey: 'swarm-<agent-id>-<random>'  (from the dashboard)
+// 0. Health check (no auth, no rate limit)
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    openai: OPENAI_API_KEY ? 'configured' : 'mock',
+    postgres: db.isPostgres,
+    simulation: db.get().simulationActive,
+  });
+});
+
+// 0b. Initialization — returns control plane token + status (no auth)
+app.get('/api/init', (req, res) => {
+  const data = db.get();
+  res.status(200).json({ token: CONTROL_PLANE_TOKEN, ...data });
+});
+
+// 1. LLM Chat completions — OpenAI SDK compatible
 app.post('/v1/chat/completions', async (req, res) => {
-  // Extract API key from Authorization header (Bearer <key>) or from body
   const authHeader = req.headers['authorization'];
   let swarmKey = null;
 
@@ -273,39 +303,31 @@ app.post('/v1/chat/completions', async (req, res) => {
 
   if (!swarmKey) {
     return res.status(401).json({
-      error: {
-        message: 'Missing API key. Pass your Virtual Swarm Key as the apiKey in the OpenAI SDK client.',
-        type: 'authentication_error',
-        code: 'missing_api_key'
-      }
+      error: { message: 'Missing Virtual Swarm Key. Pass it as the apiKey in the OpenAI SDK client.', type: 'authentication_error', code: 'missing_api_key' }
     });
   }
 
-  // Look up the swarm key to identify the agent
   const agentInfo = db.getAgentBySwarmKey(swarmKey);
   if (!agentInfo) {
     return res.status(401).json({
-      error: {
-        message: `Invalid Virtual Swarm Key: '${swarmKey}'. Generate a new key from the dashboard.`,
-        type: 'authentication_error',
-        code: 'invalid_api_key'
-      }
+      error: { message: 'Invalid Virtual Swarm Key. Generate a new key from the dashboard.', type: 'authentication_error', code: 'invalid_api_key' }
     });
   }
 
   const { model, messages } = req.body;
 
-  if (!model || !messages) {
+  if (!model || typeof model !== 'string') {
     return res.status(400).json({
-      error: {
-        message: 'Missing required fields: model and messages.',
-        type: 'invalid_request_error',
-        code: 'missing_fields'
-      }
+      error: { message: 'Missing or invalid field: model.', type: 'invalid_request_error', code: 'missing_fields' }
     });
   }
 
-  // Budget Limiting + Logging Interceptor
+  if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({
+      error: { message: 'Missing or invalid field: messages (must be a non-empty array).', type: 'invalid_request_error', code: 'missing_fields' }
+    });
+  }
+
   const result = await processChatCompletion({
     agentId: agentInfo.agentId,
     deptId: agentInfo.deptId,
@@ -317,7 +339,6 @@ app.post('/v1/chat/completions', async (req, res) => {
     return res.status(result.statusCode || 400).json({ error: result.error });
   }
 
-  // Set fallback header if applicable
   if (result._fallback) {
     res.set('X-Fallback-From', result._requested_model);
     res.set('X-Fallback-To', result.model);
@@ -326,20 +347,24 @@ app.post('/v1/chat/completions', async (req, res) => {
   return res.status(200).json(result);
 });
 
-// 2. Control Plane: Update configurations
-app.post('/api/config', (req, res) => {
-  const updated = db.updateConfig(req.body);
-  db.ensureSwarmKeys();
-  res.status(200).json({ success: true, config: updated });
+// 2. Control Plane: Update config
+app.post('/api/config', controlPlaneLimiter, requireControlAuth, (req, res) => {
+  try {
+    const updated = db.updateConfig(req.body);
+    db.ensureSwarmKeys();
+    res.status(200).json({ success: true, config: updated });
+  } catch (err) {
+    res.status(400).json({ error: { message: err.message, type: 'invalid_request_error', code: 'validation_error' } });
+  }
 });
 
 // 3. Control Plane: Get status
-app.get('/api/status', (req, res) => {
+app.get('/api/status', controlPlaneLimiter, (req, res) => {
   res.status(200).json(db.get());
 });
 
 // 4. Control Plane: Simulation toggle
-app.post('/api/simulation/toggle', (req, res) => {
+app.post('/api/simulation/toggle', controlPlaneLimiter, requireControlAuth, (req, res) => {
   const current = db.get().simulationActive;
   if (current) {
     stopInternalSimulation();
@@ -350,37 +375,47 @@ app.post('/api/simulation/toggle', (req, res) => {
 });
 
 // 5. Control Plane: Reset usage
-app.post('/api/usage/reset', (req, res) => {
+app.post('/api/usage/reset', controlPlaneLimiter, requireControlAuth, (req, res) => {
   const usage = db.resetUsage();
   res.status(200).json({ success: true, usage });
 });
 
 // 6. Control Plane: Get all swarm keys
-app.get('/api/keys', (req, res) => {
-  const keys = db.get().swarmKeys || {};
-  // Return structured key info for the frontend
+app.get('/api/keys', controlPlaneLimiter, requireControlAuth, (req, res) => {
+  const data = db.get();
+  const keys = data.swarmKeys || {};
   const keyList = Object.entries(keys).map(([key, info]) => ({
-    key,
-    agentId: info.agentId,
-    deptId: info.deptId,
-    name: info.name
+    key, agentId: info.agentId, deptId: info.deptId, name: info.name
   }));
   res.status(200).json({ keys: keyList });
 });
 
 // 7. Control Plane: Regenerate all swarm keys
-app.post('/api/keys/regenerate', (req, res) => {
+app.post('/api/keys/regenerate', controlPlaneLimiter, requireControlAuth, (req, res) => {
   const keys = db.regenerateSwarmKeys();
   const keyList = Object.entries(keys).map(([key, info]) => ({
-    key,
-    agentId: info.agentId,
-    deptId: info.deptId,
-    name: info.name
+    key, agentId: info.agentId, deptId: info.deptId, name: info.name
   }));
   res.status(200).json({ success: true, keys: keyList });
 });
 
+// ── Graceful Shutdown ────────────────────────
+function shutdown(signal) {
+  logger.info(`Received ${signal}. Shutting down gracefully...`);
+  stopInternalSimulation();
+  if (db.pool?.end) db.pool.end().catch(() => {});
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
 // ── Startup ──────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`🚀 LLM Gateway Server running at http://localhost:${PORT}`);
-});
+let server;
+if (!process.env.TEST_MODE) {
+  server = app.listen(PORT, () => {
+    logger.info(`LLM Gateway Server running at http://localhost:${PORT}`);
+  });
+}
+
+export { processChatCompletion, estimateCost, MODEL_PRICING, FALLBACK_CHAIN, app, server };

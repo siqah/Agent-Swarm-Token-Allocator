@@ -1,19 +1,15 @@
-/**
- * swarm.js — Standalone Swarm Simulator Client.
- * Uses Virtual Swarm Keys (just like a real developer would with the OpenAI SDK).
- */
-
 const GATEWAY_URL = 'http://localhost:3001/v1/chat/completions';
+const CONTROL_PLANE = 'http://localhost:3001';
 
 const AGENTS = [
-  { id: 'code-review', dept: 'engineering', name: '🔍 Code Review Agent', key: 'swarm-code-review-xxxxx' },
-  { id: 'debug-agent', dept: 'engineering', name: '🐛 Debug Agent', key: 'swarm-debug-agent-xxxxx' },
-  { id: 'content-agent', dept: 'marketing', name: '✍️ Content Agent', key: 'swarm-content-agent-xxxxx' },
-  { id: 'seo-agent', dept: 'marketing', name: '🔎 SEO Agent', key: 'swarm-seo-agent-xxxxx' },
-  { id: 'lead-scoring', dept: 'sales', name: '🎯 Lead Scoring Agent', key: 'swarm-lead-scoring-xxxxx' },
-  { id: 'email-drafter', dept: 'sales', name: '📧 Email Drafter Agent', key: 'swarm-email-drafter-xxxxx' },
-  { id: 'data-analysis', dept: 'operations', name: '📈 Data Analysis Agent', key: 'swarm-data-analysis-xxxxx' },
-  { id: 'reporting', dept: 'operations', name: '📋 Reporting Agent', key: 'swarm-reporting-xxxxx' }
+  { id: 'code-review', dept: 'engineering', name: 'Code Review Agent', key: null },
+  { id: 'debug-agent', dept: 'engineering', name: 'Debug Agent', key: null },
+  { id: 'content-agent', dept: 'marketing', name: 'Content Agent', key: null },
+  { id: 'seo-agent', dept: 'marketing', name: 'SEO Agent', key: null },
+  { id: 'lead-scoring', dept: 'sales', name: 'Lead Scoring Agent', key: null },
+  { id: 'email-drafter', dept: 'sales', name: 'Email Drafter Agent', key: null },
+  { id: 'data-analysis', dept: 'operations', name: 'Data Analysis Agent', key: null },
+  { id: 'reporting', dept: 'operations', name: 'Reporting Agent', key: null }
 ];
 
 const PROMPTS = [
@@ -27,19 +23,35 @@ const PROMPTS = [
   "Export the monthly summary breakdown as PDF format."
 ];
 
-async function fetchSwarmKeys() {
-  try {
-    const res = await fetch('http://localhost:3001/api/keys');
-    const data = await res.json();
-    if (data.keys) {
-      data.keys.forEach(({ key, agentId }) => {
-        const agent = AGENTS.find(a => a.id === agentId);
-        if (agent) agent.key = key;
-      });
+async function fetchSwarmKeys(retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(`${CONTROL_PLANE}/api/status`);
+      if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+      const data = await res.json();
+      if (data.departments) {
+        data.departments.forEach((dept) => {
+          dept.agents.forEach((agent) => {
+            const match = AGENTS.find(a => a.id === agent.id);
+            if (match && agent.swarmKey) match.key = agent.swarmKey;
+          });
+        });
+      }
+      const missing = AGENTS.filter(a => !a.key);
+      if (missing.length > 0) {
+        console.warn(`Could not resolve keys for: ${missing.map(a => a.id).join(', ')}`);
+      }
       console.log('Loaded Virtual Swarm Keys from gateway.');
+      return;
+    } catch (err) {
+      if (i < retries - 1) {
+        console.warn(`Failed to fetch keys (attempt ${i + 1}/${retries}), retrying in 2s...`);
+        await new Promise(r => setTimeout(r, 2000));
+      } else {
+        console.error('Could not fetch keys from gateway. Start the server first.');
+        process.exit(1);
+      }
     }
-  } catch {
-    console.warn('Could not fetch keys from gateway, using defaults. Start the server first.');
   }
 }
 
@@ -51,7 +63,7 @@ async function runAgent(agent) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${agent.key}` // Standard OpenAI SDK auth
+        'Authorization': `Bearer ${agent.key}`
       },
       body: JSON.stringify({
         model: 'gpt-5.6-terra',
@@ -62,12 +74,12 @@ async function runAgent(agent) {
     const data = await response.json();
 
     if (response.status === 429) {
-      console.warn(`\x1b[31m[BLOCKED] ${agent.name} (Budget Exceeded): ${data.error.message}\x1b[0m`);
+      console.warn(`[BLOCKED] ${agent.name} (Budget Exceeded): ${data.error?.message}`);
     } else if (response.status === 200) {
-      const fallbackNote = data._fallback ? ` [fallback ${data._requested_model} → ${data.model}]` : '';
-      console.log(`\x1b[32m[SUCCESS] ${agent.name} consumed ${data.usage.total_tokens} tokens on ${data.model}.${fallbackNote}\x1b[0m`);
+      const fallbackNote = data._fallback ? ` [fallback ${data._requested_model} -> ${data.model}]` : '';
+      console.log(`[SUCCESS] ${agent.name} consumed ${data.usage.total_tokens} tokens on ${data.model}.${fallbackNote}`);
     } else if (response.status === 401) {
-      console.error(`\x1b[31m[AUTH ERROR] ${agent.name}: ${data.error?.message}\x1b[0m`);
+      console.error(`[AUTH ERROR] ${agent.name}: ${data.error?.message}`);
     } else {
       console.error(`[ERROR] ${agent.name} failed:`, data.error?.message || 'Unknown error');
     }
@@ -79,7 +91,7 @@ async function runAgent(agent) {
 async function start() {
   await fetchSwarmKeys();
 
-  console.log('🚀 Standalone Agent Swarm simulator client started.');
+  console.log('Standalone Agent Swarm simulator client started.');
   console.log(`Targeting LLM Gateway at ${GATEWAY_URL}`);
   console.log('Press Ctrl+C to stop.\n');
 

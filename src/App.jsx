@@ -6,10 +6,20 @@ import Sidebar from './components/layout/Sidebar';
 import SankeyDiagram from './components/sankey/SankeyDiagram';
 import MetricsPanel from './components/layout/MetricsPanel';
 import AlertToast from './components/feedback/AlertToast';
+import ExportButton from './components/feedback/ExportButton';
+import ImportButton from './components/feedback/ImportButton';
+import ErrorBoundary from './components/feedback/ErrorBoundary';
+import KeyboardShortcuts from './components/feedback/KeyboardShortcuts';
 import './styles/tokens.css';
 import './styles/global.css';
 import './styles/layout.css';
 import './styles/animations.css';
+
+function SkeletonBlock({ width, height, style }) {
+  return (
+    <div className="skeleton-block" style={{ width, height, ...style }} />
+  );
+}
 
 function AppContent() {
   const state = useAllocation();
@@ -18,8 +28,40 @@ function AppContent() {
   const [elapsed, setElapsed] = useState(0);
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [connected, setConnected] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [ctrlToken, setCtrlToken] = useState(null);
 
   const isSimulating = state.simulationActive;
+
+  const totalTokens = Object.values(state.usage || {}).reduce(
+    (sum, u) => sum + (u.total || 0), 0
+  );
+
+  function formatTokens(n) {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+    if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+    return String(n);
+  }
+
+  function authHeaders() {
+    return ctrlToken
+      ? { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ctrlToken}` }
+      : { 'Content-Type': 'application/json' };
+  }
+
+  async function fetchInit() {
+    try {
+      const res = await fetch('/api/init');
+      if (!res.ok) throw new Error('Server error');
+      const data = await res.json();
+      setConnected(true);
+      setCtrlToken(data.token || null);
+      return data;
+    } catch {
+      setConnected(false);
+      return null;
+    }
+  }
 
   async function fetchStatus() {
     try {
@@ -35,10 +77,12 @@ function AppContent() {
   }
 
   useEffect(() => {
-    fetchStatus().then((data) => {
+    fetchInit().then((data) => {
       if (data) {
-        dispatch({ type: ACTIONS.SET_STATE, payload: data });
+        const { token, ...rest } = data;
+        dispatch({ type: ACTIONS.SET_STATE, payload: rest });
       }
+      setLoading(false);
     });
   }, [dispatch]);
 
@@ -66,7 +110,7 @@ function AppContent() {
     const timer = setTimeout(() => {
       fetch('/api/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({
           totalBudget: state.totalBudget,
           selectedModel: state.selectedModel,
@@ -91,7 +135,7 @@ function AppContent() {
   }, [isSimulating]);
 
   const toggleSimulation = useCallback(() => {
-    fetch('/api/simulation/toggle', { method: 'POST' })
+    fetch('/api/simulation/toggle', { method: 'POST', headers: authHeaders() })
       .then((res) => res.json())
       .then((data) => {
         dispatch({
@@ -103,60 +147,128 @@ function AppContent() {
         }
       })
       .catch(() => setConnected(false));
-  }, [dispatch]);
+  }, [dispatch, ctrlToken]);
 
   const handleClearUsage = useCallback(() => {
-    fetch('/api/usage/reset', { method: 'POST' })
+    fetch('/api/usage/reset', { method: 'POST', headers: authHeaders() })
       .then((res) => res.json())
       .then((data) => {
-        dispatch({
-          type: ACTIONS.SET_STATE,
-          payload: { usage: data.usage },
-        });
+        dispatch({ type: ACTIONS.SET_STATE, payload: { usage: data.usage } });
       })
       .catch(() => setConnected(false));
-  }, [dispatch]);
+  }, [dispatch, ctrlToken]);
+
+  const handleKeyDown = useCallback((e) => {
+    const mod = e.metaKey || e.ctrlKey;
+
+    if (mod && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      dispatch({ type: ACTIONS.UNDO });
+      return;
+    }
+
+    if ((mod && e.key === 'z' && e.shiftKey) || (mod && e.key === 'Z')) {
+      e.preventDefault();
+      dispatch({ type: ACTIONS.REDO });
+      return;
+    }
+
+    if (e.key === 'r' && !mod) {
+      e.preventDefault();
+      dispatch({ type: ACTIONS.RESET });
+      return;
+    }
+
+    if (e.key === 's' && !mod) {
+      e.preventDefault();
+      toggleSimulation();
+      return;
+    }
+  }, [dispatch, toggleSimulation]);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
 
   return (
     <div className="app-shell">
       <Header />
 
       <main className="app-main">
-        <Sidebar onHoverNode={setHoveredNodeId} />
-
-        <section className="app-center">
-          <SankeyDiagram 
-            isSimulating={isSimulating} 
-            viewMode={viewMode} 
-            hoveredNodeId={hoveredNodeId}
-            onHoverNode={setHoveredNodeId}
-          />
-        </section>
-
-        <MetricsPanel />
+        {loading ? (
+          <>
+            <div className="skeleton-sidebar">
+              <SkeletonBlock width="100%" height={24} style={{ marginBottom: 16 }} />
+              {[1,2,3,4].map((i) => (
+                <SkeletonBlock key={i} width="100%" height={80} style={{ marginBottom: 8, borderRadius: 6 }} />
+              ))}
+            </div>
+            <div className="skeleton-center">
+              <SkeletonBlock width="80%" height={24} style={{ marginBottom: 24 }} />
+              <SkeletonBlock width="100%" height={360} style={{ borderRadius: 8 }} />
+            </div>
+            <div className="skeleton-metrics">
+              <SkeletonBlock width="100%" height={24} style={{ marginBottom: 16 }} />
+              {[1,2,3].map((i) => (
+                <SkeletonBlock key={i} width="100%" height={64} style={{ marginBottom: 8, borderRadius: 6 }} />
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <ErrorBoundary>
+              <Sidebar onHoverNode={setHoveredNodeId} />
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <section className="app-center">
+                <SankeyDiagram 
+                  isSimulating={isSimulating} 
+                  viewMode={viewMode} 
+                  hoveredNodeId={hoveredNodeId}
+                  onHoverNode={setHoveredNodeId}
+                />
+              </section>
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <MetricsPanel />
+            </ErrorBoundary>
+          </>
+        )}
       </main>
 
       <footer className="app-footer">
         <div className="status-bar-left">
           <span className="status-item">
             <span className={`status-indicator ${connected ? 'status-indicator-green animate-live-pulse' : 'status-indicator-red'}`}>●</span>
-            GATEWAY: {connected ? 'ONLINE' : 'OFFLINE'}
+            {connected ? 'GATEWAY ONLINE' : 'GATEWAY OFFLINE'}
           </span>
           <span className="status-divider">|</span>
           <span className="status-item">
             MODEL: {state.selectedModel ? state.selectedModel.toUpperCase() : 'NONE'}
           </span>
+          <span className="status-divider">|</span>
+          <span className="status-item">
+            TK: {formatTokens(totalTokens)}
+          </span>
           {isSimulating && (
             <>
               <span className="status-divider">|</span>
               <span className="status-item timer-pulse">
-                SIM: {elapsed}s ACTIVE
+                SIM: {elapsed}s
               </span>
             </>
           )}
         </div>
 
         <div className="status-bar-right">
+          <div className="status-group">
+            <ImportButton />
+          </div>
+          <div className="status-group">
+            <ExportButton />
+          </div>
+
           <button
             className="status-button"
             onClick={() => setViewMode((prev) => (prev === 'allocated' ? 'consumption' : 'allocated'))}
@@ -182,6 +294,7 @@ function AppContent() {
       </footer>
 
       <AlertToast />
+      <KeyboardShortcuts />
     </div>
   );
 }

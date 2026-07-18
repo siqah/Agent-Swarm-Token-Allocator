@@ -16,6 +16,7 @@ export default function SliderGroup({ department, onHoverNode }) {
   const [editDeptName, setEditDeptName] = useState(department.name);
   const [editingAgent, setEditingAgent] = useState(null);
   const [editAgentName, setEditAgentName] = useState('');
+  const [dragAgentIdx, setDragAgentIdx] = useState(null);
   const deptInputRef = useRef(null);
   const agentInputRef = useRef(null);
 
@@ -137,6 +138,22 @@ export default function SliderGroup({ department, onHoverNode }) {
     }
   }, []);
 
+  const handleAgentDragStart = useCallback((idx) => {
+    setDragAgentIdx(idx);
+  }, []);
+
+  const handleAgentDrop = useCallback((toIndex) => {
+    if (dragAgentIdx === null || dragAgentIdx === toIndex) {
+      setDragAgentIdx(null);
+      return;
+    }
+    dispatch({
+      type: ACTIONS.MOVE_AGENT,
+      payload: { deptId: department.id, fromIndex: dragAgentIdx, toIndex },
+    });
+    setDragAgentIdx(null);
+  }, [dragAgentIdx, department.id, dispatch]);
+
   const color = getComputedStyle(document.documentElement)
     .getPropertyValue(department.colorVar)
     .trim();
@@ -173,7 +190,7 @@ export default function SliderGroup({ department, onHoverNode }) {
             onClick={handleRemoveDept}
             title="Remove department"
           >
-            ×
+            Remove
           </button>
         )}
         <span className={`${styles.chevron} ${isOpen ? styles.chevronOpen : ''}`}>
@@ -200,7 +217,11 @@ export default function SliderGroup({ department, onHoverNode }) {
             return (
               <div key={agent.id} style={{ animationDelay: `${idx * 40}ms` }}>
               <div
-                className={styles.sliderRow}
+                className={`${styles.sliderRow} ${dragAgentIdx === idx ? styles.draggingAgent : ''}`}
+                draggable
+                onDragStart={() => handleAgentDragStart(idx)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleAgentDrop(idx)}
                 onMouseEnter={() => onHoverNode?.(agent.id)}
                 onMouseLeave={() => onHoverNode?.(null)}
               >
@@ -264,7 +285,7 @@ export default function SliderGroup({ department, onHoverNode }) {
                     onClick={(e) => handleRemoveAgent(agent.id, e)}
                     title="Remove agent"
                   >
-                    ×
+                    Remove
                   </button>
                 )}
 

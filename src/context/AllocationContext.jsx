@@ -1,9 +1,4 @@
-/**
- * AllocationContext — Central state management for the token allocator.
- * Uses useReducer with proportional normalization logic.
- */
-
-import { createContext, useContext, useReducer } from 'react';
+import { createContext, useContext, useReducer, useEffect } from 'react';
 import {
   DEFAULT_TOTAL_BUDGET,
   DEFAULT_MODEL,
@@ -11,24 +6,9 @@ import {
   DEFAULT_DEPARTMENTS,
 } from '../data/defaultConfig';
 
-// ── Context ──────────────────────────────────
 const AllocationContext = createContext(null);
 const AllocationDispatchContext = createContext(null);
 
-// ── Initial State ────────────────────────────
-const initialState = {
-  totalBudget: DEFAULT_TOTAL_BUDGET,
-  selectedModel: DEFAULT_MODEL,
-  thresholds: { ...DEFAULT_THRESHOLDS },
-  departments: DEFAULT_DEPARTMENTS.map((dept) => ({
-    ...dept,
-    agents: dept.agents.map((a) => ({ ...a })),
-  })),
-  simulationActive: false,
-  usage: {},
-};
-
-// ── Action Types ─────────────────────────────
 export const ACTIONS = {
   SET_TOTAL_BUDGET: 'SET_TOTAL_BUDGET',
   SET_MODEL: 'SET_MODEL',
@@ -43,53 +23,34 @@ export const ACTIONS = {
   REMOVE_AGENT: 'REMOVE_AGENT',
   RESET: 'RESET',
   SET_STATE: 'SET_STATE',
+  UNDO: 'UNDO',
+  REDO: 'REDO',
+  MOVE_DEPT: 'MOVE_DEPT',
+  MOVE_AGENT: 'MOVE_AGENT',
 };
 
 // ── Normalization Helper ─────────────────────
-/**
- * When one item in a group changes to `newValue`, proportionally
- * redistribute the remaining items so the total remains 100%.
- *
- * @param {Array} items - Array of objects with an `allocation` field
- * @param {number} changedIndex - Index of the item that changed
- * @param {number} newValue - New allocation percentage (0–100)
- * @returns {Array} New array with normalized allocations
- */
 function normalizeAllocations(items, changedIndex, newValue) {
   const clamped = Math.max(0, Math.min(100, newValue));
   const remaining = 100 - clamped;
-
   const othersTotal = items.reduce(
-    (sum, item, i) => (i === changedIndex ? sum : sum + item.allocation),
-    0
+    (sum, item, i) => (i === changedIndex ? sum : sum + item.allocation), 0
   );
-
   return items.map((item, i) => {
-    if (i === changedIndex) {
-      return { ...item, allocation: clamped };
-    }
-
+    if (i === changedIndex) return { ...item, allocation: clamped };
     if (othersTotal === 0) {
-      // Edge case: all others are 0, distribute equally
       const otherCount = items.length - 1;
       return { ...item, allocation: remaining / otherCount };
     }
-
     const proportion = item.allocation / othersTotal;
     return { ...item, allocation: Math.round(proportion * remaining * 100) / 100 };
   });
 }
 
-/**
- * Final pass to fix floating-point rounding: ensures the group sums to exactly 100.
- */
 function fixRoundingError(items) {
   const total = items.reduce((sum, item) => sum + item.allocation, 0);
   const diff = 100 - total;
-
   if (Math.abs(diff) < 0.001) return items;
-
-  // Apply the rounding error to the largest allocation
   const result = [...items];
   let maxIdx = 0;
   for (let i = 1; i < result.length; i++) {
@@ -102,21 +63,15 @@ function fixRoundingError(items) {
   return result;
 }
 
-/**
- * Redistribute `amount` proportionally across items, excluding item at `excludeIndex`.
- * Returns new items array with updated allocations.
- */
 function redistribute(items, amount, excludeIndex = -1) {
   const others = items.filter((_, i) => i !== excludeIndex);
   const othersTotal = others.reduce((s, item) => s + item.allocation, 0);
-
   if (othersTotal === 0) {
     const share = amount / others.length;
     return items.map((item, i) =>
       i === excludeIndex ? item : { ...item, allocation: share }
     );
   }
-
   return items.map((item, i) => {
     if (i === excludeIndex) return item;
     const proportion = item.allocation / othersTotal;
@@ -125,13 +80,23 @@ function redistribute(items, amount, excludeIndex = -1) {
 }
 
 let _idCounter = Date.now();
-function uid() {
-  return `${++_idCounter}`;
-}
+function uid() { return `${++_idCounter}`; }
 
 const DEPT_COLORS = ['--color-engineering', '--color-marketing', '--color-sales', '--color-operations', '--color-budget'];
 
-// ── Reducer ──────────────────────────────────
+// ── Present-only reducer (no past/future) ────
+const initialPresent = {
+  totalBudget: DEFAULT_TOTAL_BUDGET,
+  selectedModel: DEFAULT_MODEL,
+  thresholds: { ...DEFAULT_THRESHOLDS },
+  departments: DEFAULT_DEPARTMENTS.map((dept) => ({
+    ...dept,
+    agents: dept.agents.map((a) => ({ ...a })),
+  })),
+  simulationActive: false,
+  usage: {},
+};
+
 function allocationReducer(state, action) {
   switch (action.type) {
     case ACTIONS.SET_TOTAL_BUDGET: {
@@ -147,10 +112,8 @@ function allocationReducer(state, action) {
       const { deptId, value } = action.payload;
       const deptIndex = state.departments.findIndex((d) => d.id === deptId);
       if (deptIndex === -1) return state;
-
       const normalized = normalizeAllocations(state.departments, deptIndex, value);
       const fixed = fixRoundingError(normalized);
-
       return {
         ...state,
         departments: fixed.map((dept, i) => ({
@@ -164,14 +127,11 @@ function allocationReducer(state, action) {
       const { deptId, agentId, value } = action.payload;
       const deptIndex = state.departments.findIndex((d) => d.id === deptId);
       if (deptIndex === -1) return state;
-
       const dept = state.departments[deptIndex];
       const agentIndex = dept.agents.findIndex((a) => a.id === agentId);
       if (agentIndex === -1) return state;
-
       const normalizedAgents = normalizeAllocations(dept.agents, agentIndex, value);
       const fixedAgents = fixRoundingError(normalizedAgents);
-
       const newDepartments = [...state.departments];
       newDepartments[deptIndex] = {
         ...dept,
@@ -180,15 +140,11 @@ function allocationReducer(state, action) {
           allocation: agent.allocation,
         })),
       };
-
       return { ...state, departments: newDepartments };
     }
 
     case ACTIONS.SET_THRESHOLDS: {
-      return {
-        ...state,
-        thresholds: { ...state.thresholds, ...action.payload },
-      };
+      return { ...state, thresholds: { ...state.thresholds, ...action.payload } };
     }
 
     case ACTIONS.ADD_DEPT: {
@@ -289,6 +245,27 @@ function allocationReducer(state, action) {
       };
     }
 
+    case ACTIONS.MOVE_DEPT: {
+      const { fromIndex, toIndex } = action.payload;
+      const depts = [...state.departments];
+      const [moved] = depts.splice(fromIndex, 1);
+      depts.splice(toIndex, 0, moved);
+      return { ...state, departments: depts };
+    }
+
+    case ACTIONS.MOVE_AGENT: {
+      const { deptId, fromIndex, toIndex } = action.payload;
+      const deptIdx = state.departments.findIndex((d) => d.id === deptId);
+      if (deptIdx === -1) return state;
+      const dept = state.departments[deptIdx];
+      const agents = [...dept.agents];
+      const [moved] = agents.splice(fromIndex, 1);
+      agents.splice(toIndex, 0, moved);
+      const newDepartments = [...state.departments];
+      newDepartments[deptIdx] = { ...dept, agents };
+      return { ...state, departments: newDepartments };
+    }
+
     case ACTIONS.SET_STATE: {
       return {
         ...state,
@@ -303,7 +280,7 @@ function allocationReducer(state, action) {
 
     case ACTIONS.RESET: {
       return {
-        ...initialState,
+        ...initialPresent,
         departments: DEFAULT_DEPARTMENTS.map((dept) => ({
           ...dept,
           agents: dept.agents.map((a) => ({ ...a })),
@@ -316,9 +293,103 @@ function allocationReducer(state, action) {
   }
 }
 
+// ── Undoable wrapper ─────────────────────────
+const TRACKED_ACTIONS = new Set([
+  'SET_TOTAL_BUDGET', 'SET_MODEL', 'SET_DEPT_ALLOCATION', 'SET_AGENT_ALLOCATION',
+  'SET_THRESHOLDS', 'RENAME_DEPT', 'ADD_DEPT', 'REMOVE_DEPT',
+  'RENAME_AGENT', 'ADD_AGENT', 'REMOVE_AGENT', 'RESET',
+  'MOVE_DEPT', 'MOVE_AGENT',
+]);
+
+function undoable(reducer) {
+  return function(state, action) {
+    if (action.type === ACTIONS.UNDO) {
+      if (state.past.length === 0) return state;
+      const { past, future, ...present } = state;
+      const previous = past[past.length - 1];
+      return {
+        ...previous,
+        past: past.slice(0, -1),
+        future: [present, ...future],
+      };
+    }
+    if (action.type === ACTIONS.REDO) {
+      if (state.future.length === 0) return state;
+      const { past, future, ...present } = state;
+      const next = future[0];
+      return {
+        ...next,
+        past: [...past, present],
+        future: future.slice(1),
+      };
+    }
+
+    const { past, future, ...present } = state;
+    const newPresent = reducer(present, action);
+    if (newPresent === present) return state;
+
+    if (TRACKED_ACTIONS.has(action.type)) {
+      return {
+        ...newPresent,
+        past: [...past, present],
+        future: [],
+      };
+    }
+
+    return { ...newPresent, past, future };
+  };
+}
+
+// ── localStorage ─────────────────────────────
+const STORAGE_KEY = 'swarm-allocator-state';
+
+function loadSavedState() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && parsed.departments && Array.isArray(parsed.departments)) {
+        return {
+          ...initialPresent,
+          ...parsed,
+          departments: parsed.departments.map((d) => ({
+            ...d,
+            agents: d.agents ? d.agents.map((a) => ({ ...a })) : [],
+          })),
+        };
+      }
+    }
+  } catch { }
+  return initialPresent;
+}
+
+function getPresent(state) {
+  const { past, future, ...present } = state;
+  return present;
+}
+
 // ── Provider ─────────────────────────────────
+const initialUndoableState = {
+  ...loadSavedState(),
+  past: [],
+  future: [],
+};
+
+const undoingReducer = undoable(allocationReducer);
+
 export function AllocationProvider({ children }) {
-  const [state, dispatch] = useReducer(allocationReducer, initialState);
+  const [state, dispatch] = useReducer(undoingReducer, initialUndoableState);
+
+  useEffect(() => {
+    const present = getPresent(state);
+    const toSave = {
+      totalBudget: present.totalBudget,
+      selectedModel: present.selectedModel,
+      thresholds: present.thresholds,
+      departments: present.departments,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  }, [state]);
 
   return (
     <AllocationContext.Provider value={state}>
@@ -329,7 +400,6 @@ export function AllocationProvider({ children }) {
   );
 }
 
-// ── Hooks ────────────────────────────────────
 export function useAllocation() {
   const context = useContext(AllocationContext);
   if (!context) {

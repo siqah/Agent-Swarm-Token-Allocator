@@ -90,7 +90,7 @@ export default function SankeyNode({ node, alertLevel, isHovered, onHover, onLea
           fontWeight="500"
           style={{ pointerEvents: 'none', letterSpacing: '0.04em', textTransform: 'uppercase' }}
         >
-          {node.name}
+          {node.name.length > 18 ? node.name.slice(0, 16) + '..' : node.name}
         </text>
       )}
 

@@ -9,12 +9,26 @@ export default function SankeyTooltip({ node, mousePosition }) {
 
   const cost = getCost(node.id);
 
+  const tooltipWidth = 240;
+  const tooltipHeight = 120;
+  let left = mousePosition.x + 16;
+  let top = mousePosition.y - 8;
+
+  if (left + tooltipWidth > window.innerWidth - 8) {
+    left = mousePosition.x - tooltipWidth - 8;
+  }
+  if (top + tooltipHeight > window.innerHeight - 8) {
+    top = window.innerHeight - tooltipHeight - 8;
+  }
+  if (top < 8) top = 8;
+  if (left < 8) left = 8;
+
   return (
     <div
       className={styles.tooltip}
       style={{
-        left: mousePosition.x + 16,
-        top: mousePosition.y - 8,
+        left,
+        top,
       }}
     >
       <div className={styles.header}>

@@ -28,22 +28,20 @@ export default function BudgetInput() {
   );
 
   return (
-    <div>
-      <div className={headerStyles.inputGroup}>
-        <label htmlFor="budget-input" className={headerStyles.inputLabel}>
-          Budget
-        </label>
-        <input
-          id="budget-input"
-          type="text"
-          value={formatNumber(totalBudget)}
-          onChange={handleChange}
-          className={headerStyles.inputField}
-          aria-label="Total monthly token budget"
-          maxLength={15}
-          title={`Max ${formatNumber(MAX_BUDGET)}`}
-        />
-      </div>
+    <div className={headerStyles.budgetGroup}>
+      <label htmlFor="budget-input" className={headerStyles.inputLabel}>
+        Budget
+      </label>
+      <input
+        id="budget-input"
+        type="text"
+        value={formatNumber(totalBudget)}
+        onChange={handleChange}
+        className={headerStyles.inputField}
+        aria-label="Total monthly token budget"
+        maxLength={15}
+        title={`Max ${formatNumber(MAX_BUDGET)}`}
+      />
       <div className={headerStyles.presetGroup}>
         {presets.map((preset) => (
           <button

@@ -1,21 +1,19 @@
-/**
- * database.js — Multi-source database adapter with automatic PostgreSQL
- * connection pooling and graceful local JSON-file fallback.
- */
-
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
 import dotenv from 'dotenv';
 
-// Load environmental config
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 const DB_FILE = path.join(__dirname, 'db.json');
 const { Pool } = pg;
+
+function deepClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
 
 const DEFAULTS = {
   totalBudget: 10000000,
@@ -78,18 +76,20 @@ const DEFAULTS = {
 };
 
 class Database {
-  constructor() {
-    this.data = { ...DEFAULTS };
+  constructor(options = {}) {
+    this.data = deepClone(DEFAULTS);
     this.isPostgres = false;
     this.pool = null;
-    this.init();
+    if (!options.skipInit) {
+      this.init();
+    }
   }
 
   async init() {
     const connectionString = process.env.DATABASE_URL;
 
     if (!connectionString) {
-      console.log('⚠️ No DATABASE_URL found. Running with local JSON database.');
+      console.log('No DATABASE_URL found. Running with local JSON database.');
       this.loadJson();
       return;
     }
@@ -97,23 +97,20 @@ class Database {
     try {
       this.pool = new Pool({
         connectionString,
-        connectionTimeoutMillis: 3000 // 3 seconds timeout
+        connectionTimeoutMillis: 3000
       });
 
-      // Probe Postgres connection
       const client = await this.pool.connect();
       client.release();
 
       this.isPostgres = true;
-      console.log('🐘 Connected to PostgreSQL database successfully.');
+      console.log('Connected to PostgreSQL database successfully.');
 
-      // Initialize Postgres schema tables
       await this.initSchema();
-      // Hydrate state from Postgres
       await this.hydrateFromPostgres();
       this.ensureSwarmKeys();
     } catch (err) {
-      console.warn('⚠️ PostgreSQL connection failed. Falling back to local JSON database.');
+      console.warn('PostgreSQL connection failed. Falling back to local JSON database.');
       this.isPostgres = false;
       this.loadJson();
     }
@@ -121,7 +118,6 @@ class Database {
 
   async initSchema() {
     try {
-      // Configuration table
       await this.pool.query(`
         CREATE TABLE IF NOT EXISTS config (
           key VARCHAR(50) PRIMARY KEY,
@@ -129,7 +125,6 @@ class Database {
         )
       `);
 
-      // Agent usage statistics table
       await this.pool.query(`
         CREATE TABLE IF NOT EXISTS agent_usage (
           agent_id VARCHAR(50) PRIMARY KEY,
@@ -146,25 +141,21 @@ class Database {
 
   async hydrateFromPostgres() {
     try {
-      // Load configuration
       const configRes = await this.pool.query("SELECT value FROM config WHERE key = 'main'");
       if (configRes.rows.length > 0) {
         const stored = configRes.rows[0].value;
         this.data.totalBudget = stored.totalBudget;
         this.data.selectedModel = stored.selectedModel;
-        this.data.departments = stored.departments;
+        this.data.departments = deepClone(stored.departments);
         this.data.thresholds = stored.thresholds || this.data.thresholds;
         this.data.simulationActive = stored.simulationActive ?? false;
         this.data.swarmKeys = stored.swarmKeys || {};
       } else {
-        // Save initial default configurations to SQL config table
         await this.saveConfigToPostgres();
       }
 
-      // Load agent usage statistics
       const usageRes = await this.pool.query("SELECT * FROM agent_usage");
-      
-      // Initialize usage block to zero
+
       Object.keys(this.data.usage).forEach(key => {
         this.data.usage[key] = { input: 0, output: 0, total: 0 };
       });
@@ -204,16 +195,15 @@ class Database {
     try {
       if (fs.existsSync(DB_FILE)) {
         const fileContent = fs.readFileSync(DB_FILE, 'utf8');
-        this.data = JSON.parse(fileContent);
+        this.data = deepClone(JSON.parse(fileContent));
       } else {
-        this.data = { ...DEFAULTS };
+        this.data = deepClone(DEFAULTS);
         this.saveJson();
       }
     } catch (err) {
       console.error('Error loading JSON database:', err);
-      this.data = { ...DEFAULTS };
+      this.data = deepClone(DEFAULTS);
     }
-    // Ensure swarmKeys field exists (legacy data may not have it)
     if (!this.data.swarmKeys) {
       this.data.swarmKeys = {};
     }
@@ -229,25 +219,44 @@ class Database {
   }
 
   get() {
-    return this.data;
+    return deepClone(this.data);
   }
 
   updateConfig(config) {
-    if (config.totalBudget !== undefined) this.data.totalBudget = config.totalBudget;
-    if (config.selectedModel !== undefined) this.data.selectedModel = config.selectedModel;
-    if (config.departments !== undefined) this.data.departments = config.departments;
-    if (config.thresholds !== undefined) this.data.thresholds = config.thresholds;
+    if (config.totalBudget !== undefined) {
+      if (typeof config.totalBudget !== 'number' || config.totalBudget < 0 || !Number.isFinite(config.totalBudget)) {
+        throw new Error('totalBudget must be a non-negative number');
+      }
+      this.data.totalBudget = config.totalBudget;
+    }
+    if (config.selectedModel !== undefined) {
+      if (typeof config.selectedModel !== 'string' || !config.selectedModel) {
+        throw new Error('selectedModel must be a non-empty string');
+      }
+      this.data.selectedModel = config.selectedModel;
+    }
+    if (config.departments !== undefined) {
+      if (!Array.isArray(config.departments) || config.departments.length === 0) {
+        throw new Error('departments must be a non-empty array');
+      }
+      this.data.departments = deepClone(config.departments);
+    }
+    if (config.thresholds !== undefined) {
+      if (typeof config.thresholds !== 'object' || config.thresholds === null) {
+        throw new Error('thresholds must be an object');
+      }
+      this.data.thresholds = config.thresholds;
+    }
 
     if (this.isPostgres) {
       this.saveConfigToPostgres();
     } else {
       this.saveJson();
     }
-    return this.data;
+    return deepClone(this.data);
   }
 
   recordUsage(agentId, promptTokens, completionTokens) {
-    // Record in local cache
     if (!this.data.usage[agentId]) {
       this.data.usage[agentId] = { input: 0, output: 0, total: 0 };
     }
@@ -257,7 +266,6 @@ class Database {
     this.data.usage[agentId].total += (promptTokens + completionTokens);
 
     if (this.isPostgres) {
-      // Upsert into SQL agent_usage database
       const total = promptTokens + completionTokens;
       this.pool.query(`
         INSERT INTO agent_usage (agent_id, input_tokens, output_tokens, total_tokens, updated_at)
@@ -273,7 +281,7 @@ class Database {
       this.saveJson();
     }
 
-    return this.data.usage[agentId];
+    return { ...this.data.usage[agentId] };
   }
 
   setSimulationActive(active) {
@@ -297,7 +305,7 @@ class Database {
     } else {
       this.saveJson();
     }
-    return this.data.usage;
+    return deepClone(this.data.usage);
   }
 
   generateSwarmKey(agentId, _agentName) {
@@ -350,8 +358,9 @@ class Database {
     } else {
       this.saveJson();
     }
-    return this.data.swarmKeys;
+    return deepClone(this.data.swarmKeys);
   }
 }
 
 export const db = new Database();
+export { Database, deepClone, DEFAULTS };

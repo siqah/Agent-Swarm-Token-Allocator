@@ -129,7 +129,7 @@ export function useSankeyLayout(state, width, height, viewMode = 'allocated') {
     const sankeyGenerator = sankey()
       .nodeId((d) => d.id)
       .nodeWidth(18)
-      .nodePadding(16)
+      .nodePadding(20)
       .nodeSort(null) // preserve insertion order
       .extent([
         [1, 24],

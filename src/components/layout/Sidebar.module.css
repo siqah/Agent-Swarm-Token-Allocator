@@ -24,26 +24,35 @@
   font-weight: var(--weight-semibold);
 }
 
-.addButton {
-  width: 18px;
-  height: 18px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-subtle);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-fast) var(--ease-out-quint);
+.searchRow {
+  padding: 0 var(--space-1);
 }
 
-.addButton:hover {
+.searchInput {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  outline: none;
+  transition: border-color var(--duration-fast) var(--ease-out-quint);
+  box-sizing: border-box;
+}
+
+.searchInput:focus {
+  border-color: var(--color-budget);
   color: var(--text-primary);
-  border-color: var(--border-default);
-  background: var(--bg-hover);
+}
+
+.searchInput::placeholder {
+  color: var(--text-muted);
+}
+
+.dragging {
+  opacity: 0.4;
 }
 
 .groupList {
@@ -53,11 +62,76 @@
   flex: 1;
 }
 
-.resetButton {
+.addDeptButton {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out-quint);
+  margin-top: var(--space-1);
+}
+
+.addDeptButton:hover {
+  border-color: var(--border-default);
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+}
+
+.addDeptButtonEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out-quint);
+}
+
+.addDeptButtonEmpty:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.resetRow {
+  display: flex;
+  align-items: center;
   gap: var(--space-2);
+  margin-top: auto;
+}
+
+.resetButton {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: var(--space-1) var(--space-3);
   height: 28px;
   background: transparent;
@@ -70,10 +144,52 @@
   transition: border-color var(--duration-fast) var(--ease-out-quint),
               color var(--duration-fast) var(--ease-out-quint),
               background var(--duration-fast) var(--ease-out-quint);
-  margin-top: auto;
 }
 
 .resetButton:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-default);
+  background: var(--bg-hover);
+}
+
+.confirmText {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.confirmButton {
+  padding: var(--space-1) var(--space-3);
+  height: 28px;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out-quint);
+}
+
+.confirmButton:hover {
+  background: color-mix(in srgb, var(--color-danger) 20%, transparent);
+}
+
+.cancelButton {
+  padding: var(--space-1) var(--space-3);
+  height: 28px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out-quint);
+}
+
+.cancelButton:hover {
   color: var(--text-secondary);
   border-color: var(--border-default);
   background: var(--bg-hover);

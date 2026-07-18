@@ -89,6 +89,10 @@
   transition: background var(--duration-fast) var(--ease-out-quint);
 }
 
+.draggingAgent {
+  opacity: 0.3;
+}
+
 .sliderRow:hover {
   background: oklch(1 0 0 / 0.015);
 }
@@ -96,7 +100,7 @@
 .sliderLabel {
   font-size: var(--text-xs);
   color: var(--text-secondary);
-  min-width: 72px;
+  min-width: 100px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -123,11 +127,11 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--accent-color, var(--color-budget));
   border: 2px solid var(--accent-color, var(--border-strong));
   cursor: grab;
-  box-shadow: 0 1px 2px oklch(0 0 0 / 0.3);
-  transition: transform var(--duration-fast) var(--ease-out-quint);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color) 20%, transparent);
+  transition: transform var(--duration-fast) var(--ease-out-quint), box-shadow var(--duration-fast) var(--ease-out-quint);
 }
 
 .slider::-webkit-slider-thumb:hover {
@@ -143,10 +147,10 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--accent-color, var(--color-budget));
   border: 2px solid var(--accent-color, var(--border-strong));
   cursor: grab;
-  box-shadow: 0 1px 2px oklch(0 0 0 / 0.3);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color) 20%, transparent);
 }
 
 .sliderValue {
@@ -245,16 +249,16 @@
   font-size: 0.5625rem;
 }
 
-/* ── Action buttons (× remove) ─────────────── */
+/* ── Action buttons (Remove) ───────────────── */
 .actionButton {
   background: none;
-  border: none;
+  border: 1px solid transparent;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 9px;
+  font-family: var(--font-mono);
   line-height: 1;
-  width: 18px;
-  height: 18px;
+  padding: 2px 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -262,6 +266,7 @@
   transition: all var(--duration-fast) var(--ease-out-quint);
   flex-shrink: 0;
   opacity: 0;
+  white-space: nowrap;
 }
 
 .sliderGroup:hover .actionButton,
@@ -271,7 +276,8 @@
 
 .actionButton:hover {
   color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-danger) 25%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
 }
 
 /* ── Add agent button ─────────────────────── */
@@ -282,7 +288,7 @@
   gap: 4px;
   padding: var(--space-1);
   margin-top: var(--space-1);
-  border: 1px dashed var(--border-subtle);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-muted);

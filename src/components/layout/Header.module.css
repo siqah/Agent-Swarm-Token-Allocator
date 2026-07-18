@@ -80,6 +80,12 @@
   gap: var(--space-2);
 }
 
+.budgetGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .inputLabel {
   font-size: var(--text-xs);
   color: var(--text-muted);
