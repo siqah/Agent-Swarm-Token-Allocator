@@ -1,17 +1,49 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import crypto from 'crypto';
 import { db } from './database.js';
 import { logger } from './logger.js';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = parseInt(process.env.PORT, 10) || 3001;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// ── Environment validation ─────────────────
+const REQUIRED_ENV_VARS = [];
+if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) {
+  REQUIRED_ENV_VARS.push('DATABASE_URL');
+}
+if (REQUIRED_ENV_VARS.length > 0) {
+  logger.error(`Missing required environment variables: ${REQUIRED_ENV_VARS.join(', ')}`);
+  process.exit(1);
+}
 
 // ── Security Middleware ──────────────────────
-app.use(helmet());
-app.use(cors());
+app.use(helmet({
+  contentSecurityPolicy: NODE_ENV === 'production' ? undefined : false,
+}));
+
+const CORS_ORIGIN = process.env.CORS_ORIGIN || (NODE_ENV === 'production' ? process.env.APP_URL : '*');
+app.use(cors({
+  origin: CORS_ORIGIN,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  maxAge: 86400,
+}));
+
+app.use(compression());
 app.use(express.json({ limit: '64kb' }));
+
+// ── Request ID tracing ──────────────────────
+app.use((req, res, next) => {
+  req.id = req.headers['x-request-id'] || crypto.randomUUID().slice(0, 8);
+  res.setHeader('X-Request-Id', req.id);
+  next();
+});
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -46,7 +78,32 @@ function requireControlAuth(req, res, next) {
   next();
 }
 
-logger.info(`Control plane token (set CONTROL_PLANE_TOKEN env var to customize): ${CONTROL_PLANE_TOKEN}`);
+// ── Centralized error handler ───────────────
+class AppError extends Error {
+  constructor(message, statusCode = 500, code = 'internal_error', type = 'api_error') {
+    super(message);
+    this.statusCode = statusCode;
+    this.code = code;
+    this.type = type;
+  }
+}
+
+function errorHandler(err, req, res, _next) {
+  const statusCode = err.statusCode || 500;
+  const code = err.code || 'internal_error';
+  const type = err.type || 'api_error';
+  const message = err.message || 'An unexpected error occurred';
+
+  if (statusCode >= 500) {
+    logger.error(`[${req.id}] ${err.stack || err.message}`);
+  } else {
+    logger.warn(`[${req.id}] ${err.message}`);
+  }
+
+  res.status(statusCode).json({
+    error: { message, type, code, requestId: req.id }
+  });
+}
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || null;
 
@@ -281,6 +338,9 @@ app.get('/api/health', (req, res) => {
     openai: OPENAI_API_KEY ? 'configured' : 'mock',
     postgres: db.isPostgres,
     simulation: db.get().simulationActive,
+    version: '1.0.0',
+    node: process.version,
+    environment: NODE_ENV,
   });
 });
 
@@ -399,23 +459,70 @@ app.post('/api/keys/regenerate', controlPlaneLimiter, requireControlAuth, (req, 
   res.status(200).json({ success: true, keys: keyList });
 });
 
+// ── Error handler middleware (must be last) ──
+app.use(errorHandler);
+
+// ── 404 handler ──────────────────────────────
+app.use((req, res) => {
+  res.status(404).json({
+    error: { message: `Route ${req.method} ${req.url} not found.`, type: 'invalid_request_error', code: 'not_found' }
+  });
+});
+
 // ── Graceful Shutdown ────────────────────────
+let server;
+let connections = new Set();
+let shuttingDown = false;
+
 function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   logger.info(`Received ${signal}. Shutting down gracefully...`);
+
   stopInternalSimulation();
-  if (db.pool?.end) db.pool.end().catch(() => {});
-  process.exit(0);
+
+  // Stop accepting new connections
+  server.close(() => {
+    logger.info('HTTP server closed.');
+    if (db.pool?.end) {
+      db.pool.end().catch(() => {}).finally(() => process.exit(0));
+    } else {
+      process.exit(0);
+    }
+  });
+
+  // Drain existing connections
+  for (const conn of connections) {
+    conn.end();
+  }
+
+  // Force exit after 10s
+  setTimeout(() => {
+    logger.error('Forced shutdown after timeout.');
+    process.exit(1);
+  }, 10000).unref();
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('uncaughtException', (err) => {
+  logger.error('Uncaught exception:', err);
+  shutdown('UNCAUGHT_EXCEPTION');
+});
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled rejection:', reason);
+});
 
 // ── Startup ──────────────────────────────────
-let server;
 if (!process.env.TEST_MODE) {
   server = app.listen(PORT, () => {
-    logger.info(`LLM Gateway Server running at http://localhost:${PORT}`);
+    logger.info(`LLM Gateway Server running at http://localhost:${PORT} [${NODE_ENV}]`);
+  });
+
+  server.on('connection', (conn) => {
+    connections.add(conn);
+    conn.on('close', () => connections.delete(conn));
   });
 }
 
-export { processChatCompletion, estimateCost, MODEL_PRICING, FALLBACK_CHAIN, app, server };
+export { processChatCompletion, estimateCost, MODEL_PRICING, FALLBACK_CHAIN, app, server, AppError };

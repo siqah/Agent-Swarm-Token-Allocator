@@ -13,6 +13,44 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: swarm-api
+    restart: always
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://postgres:secretpassword@postgres-db:5432/swarm_allocator
+      CONTROL_PLANE_TOKEN: ${CONTROL_PLANE_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LOG_LEVEL: info
+      CORS_ORIGIN: http://localhost:80
+      APP_URL: http://localhost:80
+    ports:
+      - "3001:3001"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: swarm-app
+    restart: always
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+    environment:
+      - API_URL=http://api:3001
 
 volumes:
   pgdata:

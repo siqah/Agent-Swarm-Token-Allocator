@@ -6,9 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "oxlint",
     "preview": "vite preview",
-    "test": "npm test --prefix server"
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "typecheck": "echo 'No TypeScript — skipping typecheck'",
+    "test": "npm test --prefix server",
+    "test:all": "npm test --prefix server",
+    "start": "vite preview --port 4173",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "ci": "npm run lint && npm run build && npm test"
   },
   "dependencies": {
     "d3": "^7.9.0",
