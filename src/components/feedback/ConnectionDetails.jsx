@@ -7,7 +7,7 @@ import { useState, useCallback } from 'react';
 import { useAllocation } from '../../context/AllocationContext';
 import styles from './ConnectionDetails.module.css';
 
-const GATEWAY_URL = 'http://localhost:3000/v1';
+const GATEWAY_URL = 'http://localhost:3001/v1';
 
 export default function ConnectionDetails() {
   const { departments } = useAllocation();

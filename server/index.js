@@ -121,6 +121,9 @@ const MODEL_PRICING = {
   'gpt-5.6-terra': { input: 2.50, output: 15.00 },
   'gpt-5.6-luna':  { input: 1.00, output: 6.00 },
   'gpt-5.4-nano':  { input: 0.20, output: 1.25 },
+  'o1-preview':    { input: 15.00, output: 60.00 },
+  'o1-mini':       { input: 3.00, output: 12.00 },
+  'o3-mini':       { input: 1.10, output: 4.40 },
   // Anthropic pricing
   'claude-3.5-sonnet': { input: 3.00, output: 15.00 },
   'claude-3.5-haiku':  { input: 1.00, output: 5.00 },
@@ -451,7 +454,7 @@ app.get('/api/health', (req, res) => {
     providers: getAvailableProviders(),
     postgres: db.isPostgres,
     simulation: db.get().simulationActive,
-    version: '1.0.0',
+    version: '0.1.0',
     node: process.version,
     environment: NODE_ENV,
   });

@@ -9,9 +9,18 @@ const __dirname = path.dirname(__filename);
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
 export async function runMigrations(pool) {
-  const migrationFiles = fs.readdirSync(MIGRATIONS_DIR)
-    .filter(f => f.endsWith('.sql'))
-    .sort();
+  let migrationFiles = [];
+  try {
+    migrationFiles = fs.readdirSync(MIGRATIONS_DIR)
+      .filter(f => f.endsWith('.sql'))
+      .sort();
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      logger.info('Migrations directory not found, skipping.');
+      return;
+    }
+    throw err;
+  }
 
   if (migrationFiles.length === 0) {
     logger.info('No migrations found.');

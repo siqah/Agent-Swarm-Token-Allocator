@@ -8,6 +8,7 @@ import { TotalCostCard, AgentCostCard } from '../feedback/CostCard';
 import GatewayLogs from '../feedback/GatewayLogs';
 import ConnectionDetails from '../feedback/ConnectionDetails';
 import ExportButton from '../feedback/ExportButton';
+import ImportButton from '../feedback/ImportButton';
 import styles from './MetricsPanel.module.css';
 
 export default function MetricsPanel() {
@@ -55,7 +56,10 @@ export default function MetricsPanel() {
 
       <div className={styles.divider} />
 
-      <ExportButton />
+      <div className={styles.exportRow}>
+        <ExportButton />
+        <ImportButton />
+      </div>
     </aside>
   );
 }

@@ -43,17 +43,20 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Run frontend tests
+        run: npm test
+
       - name: Install server dependencies
         working-directory: ./server
         run: npm ci
 
-      - name: Run server tests (JSON DB)
+      - name: Server tests (JSON DB)
         working-directory: ./server
         run: npm test
         env:
           TEST_MODE: "1"
 
-      - name: Run server tests (PostgreSQL)
+      - name: Server tests (PostgreSQL)
         working-directory: ./server
         run: npm test
         env:

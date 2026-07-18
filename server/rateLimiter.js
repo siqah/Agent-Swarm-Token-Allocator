@@ -13,4 +13,9 @@ function createOpts(max) {
 }
 
 export const apiLimiter = rateLimit(createOpts(120));
-export const controlPlaneLimiter = rateLimit({ ...createOpts(30), message: undefined });
+export const controlPlaneLimiter = rateLimit({
+  ...createOpts(30),
+  message: {
+    error: { message: 'Too many requests. Try again in a moment.', type: 'rate_limit_error', code: 'rate_limited' }
+  },
+});

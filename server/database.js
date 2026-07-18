@@ -246,10 +246,6 @@ class Database {
     await this.ensureSwarmKeys();
   }
 
-  afterInit() {
-    // Called by external code after DB init to sync provider keys
-  }
-
   saveJson() {
     try {
       const content = JSON.stringify(this.data, null, 2);

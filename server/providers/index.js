@@ -13,6 +13,8 @@ const MODEL_ROUTES = [
   { prefix: 'gpt-', provider: openai.name },
   { prefix: 'o1-', provider: openai.name },
   { prefix: 'o3-', provider: openai.name },
+  { prefix: 'o1.', provider: openai.name },
+  { prefix: 'o3.', provider: openai.name },
   { prefix: 'claude', provider: anthropic.name },
   { prefix: 'gemini', provider: google.name },
   { prefix: 'llama', provider: groq.name },
