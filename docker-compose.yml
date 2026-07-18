@@ -1,20 +1,18 @@
-version: '3.8'
-
 services:
   postgres-db:
     image: postgres:15-alpine
     container_name: swarm-postgres
     restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: secretpassword
-      POSTGRES_DB: swarm_allocator
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-changeme}
+      POSTGRES_DB: ${PG_DATABASE:-swarm_allocator}
     ports:
-      - "5432:5432"
+      - "${PG_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -30,14 +28,14 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgres://postgres:secretpassword@postgres-db:5432/swarm_allocator
+      DATABASE_URL: postgres://${PG_USER:-postgres}:${PG_PASSWORD:-changeme}@postgres-db:${PG_PORT:-5432}/${PG_DATABASE:-swarm_allocator}
       CONTROL_PLANE_TOKEN: ${CONTROL_PLANE_TOKEN:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      LOG_LEVEL: info
-      CORS_ORIGIN: http://localhost:80
-      APP_URL: http://localhost:80
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:80}
+      APP_URL: ${APP_URL:-http://localhost:80}
     ports:
-      - "3001:3001"
+      - "${API_PORT:-3001}:3001"
 
   app:
     build:
@@ -48,9 +46,7 @@ services:
     depends_on:
       - api
     ports:
-      - "80:80"
-    environment:
-      - API_URL=http://api:3001
+      - "${APP_PORT:-80}:80"
 
 volumes:
   pgdata:

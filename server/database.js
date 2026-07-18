@@ -3,6 +3,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
 import dotenv from 'dotenv';
+import { runMigrations } from './migrate.js';
+import { logger } from './logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -134,7 +136,7 @@ class Database {
     const connectionString = process.env.DATABASE_URL;
 
     if (!connectionString) {
-      console.log('No DATABASE_URL found. Running with local JSON database.');
+      logger.info('No DATABASE_URL found. Running with local JSON database.');
       await this.loadJson();
       return;
     }
@@ -149,13 +151,13 @@ class Database {
       client.release();
 
       this.isPostgres = true;
-      console.log('Connected to PostgreSQL database successfully.');
+      logger.info('Connected to PostgreSQL database successfully.');
 
       await this.initSchema();
       await this.hydrateFromPostgres();
       await this.ensureSwarmKeys();
     } catch (err) {
-      console.warn('PostgreSQL connection failed. Falling back to local JSON database.');
+      logger.warn('PostgreSQL connection failed. Falling back to local JSON database.');
       this.isPostgres = false;
       await this.loadJson();
     }
@@ -163,24 +165,10 @@ class Database {
 
   async initSchema() {
     try {
-      await this.pool.query(`
-        CREATE TABLE IF NOT EXISTS config (
-          key VARCHAR(50) PRIMARY KEY,
-          value JSONB NOT NULL
-        )
-      `);
-
-      await this.pool.query(`
-        CREATE TABLE IF NOT EXISTS agent_usage (
-          agent_id VARCHAR(50) PRIMARY KEY,
-          input_tokens BIGINT DEFAULT 0,
-          output_tokens BIGINT DEFAULT 0,
-          total_tokens BIGINT DEFAULT 0,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
+      await runMigrations(this.pool);
     } catch (err) {
-      console.error('Error initializing PostgreSQL schema:', err);
+      logger.error('Error running database migrations:', err);
+      throw err;
     }
   }
 
@@ -213,7 +201,7 @@ class Database {
         };
       });
     } catch (err) {
-      console.error('Error hydrating state from PostgreSQL:', err);
+      logger.error('Error hydrating state from PostgreSQL:', err);
     }
   }
 
@@ -232,7 +220,7 @@ class Database {
         [payload]
       );
     } catch (err) {
-      console.error('Failed to save config to PostgreSQL:', err);
+      logger.error('Failed to save config to PostgreSQL:', err);
     }
   }
 
@@ -246,7 +234,7 @@ class Database {
         this.saveJson();
       }
     } catch (err) {
-      console.error('Error loading JSON database:', err);
+      logger.error('Error loading JSON database:', err);
       this.data = deepClone(DEFAULTS);
     }
     if (!this.data.swarmKeys) {
@@ -261,7 +249,7 @@ class Database {
       fs.writeFileSync(DB_TEMP_FILE, content, 'utf8');
       fs.renameSync(DB_TEMP_FILE, DB_FILE);
     } catch (err) {
-      console.error('Error saving JSON database:', err);
+      logger.error('Error saving JSON database:', err);
     }
   }
 
@@ -328,7 +316,7 @@ class Database {
               updated_at = NOW()
           `, [agentId, promptTokens, completionTokens, total]);
         } catch (err) {
-          console.error('Failed to log usage in SQL agent_usage table:', err);
+          logger.error('Failed to log usage in SQL agent_usage table:', err);
         }
       } else {
         this.saveJson();
@@ -360,7 +348,7 @@ class Database {
         try {
           await this.pool.query("UPDATE agent_usage SET input_tokens = 0, output_tokens = 0, total_tokens = 0");
         } catch (err) {
-          console.error('Failed to clear SQL agent_usage counters:', err);
+          logger.error('Failed to clear SQL agent_usage counters:', err);
         }
       } else {
         this.saveJson();

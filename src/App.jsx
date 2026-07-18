@@ -85,21 +85,30 @@ function AppContent() {
   }, [dispatch]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      fetchStatus().then((data) => {
-        if (data) {
-          dispatch({
-            type: ACTIONS.SET_STATE,
-            payload: {
-              usage: data.usage,
-              simulationActive: data.simulationActive,
-            },
-          });
-        }
-      });
-    }, 1000);
+    const apiUrl = typeof __API_URL__ !== 'undefined' && __API_URL__ ? __API_URL__ : '';
+    const source = new EventSource(`${apiUrl}/api/stream`);
 
-    return () => clearInterval(interval);
+    source.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setConnected(true);
+        dispatch({
+          type: ACTIONS.SET_STATE,
+          payload: {
+            usage: data.usage,
+            simulationActive: data.simulationActive,
+          },
+        });
+      } catch {
+        setConnected(false);
+      }
+    };
+
+    source.onerror = () => {
+      setConnected(false);
+    };
+
+    return () => source.close();
   }, [dispatch]);
 
   useEffect(() => {

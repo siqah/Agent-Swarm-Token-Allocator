@@ -2,10 +2,16 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { db } from './database.js';
 import { logger } from './logger.js';
+import { validate, chatCompletionSchema, configUpdateSchema } from './validate.js';
+import { apiLimiter, controlPlaneLimiter } from './rateLimiter.js';
+import {
+  trackRequest, metricsEndpoint, incrementTokens,
+  incrementBudgetBlocked, incrementFallbacks, incrementUpstreamErrors,
+  incrementSimulationTicks,
+} from './metrics.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
@@ -23,7 +29,18 @@ if (REQUIRED_ENV_VARS.length > 0) {
 
 // ── Security Middleware ──────────────────────
 app.use(helmet({
-  contentSecurityPolicy: NODE_ENV === 'production' ? undefined : false,
+  contentSecurityPolicy: NODE_ENV === 'production' ? {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      connectSrc: ["'self'"],
+      formAction: ["'self'"],
+      upgradeInsecureRequests: [],
+    },
+  } : false,
 }));
 
 const CORS_ORIGIN = process.env.CORS_ORIGIN || (NODE_ENV === 'production' ? process.env.APP_URL : '*');
@@ -45,22 +62,10 @@ app.use((req, res, next) => {
   next();
 });
 
-const apiLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 120,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    error: { message: 'Too many requests. Try again in a moment.', type: 'rate_limit_error', code: 'rate_limited' }
-  }
-});
+// ── Metrics tracking ─────────────────────────
+app.use(trackRequest);
 
-const controlPlaneLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+app.use('/v1/', apiLimiter);
 
 app.use('/v1/', apiLimiter);
 
@@ -77,6 +82,8 @@ function requireControlAuth(req, res, next) {
   }
   next();
 }
+
+app.use('/v1/', apiLimiter);
 
 // ── Centralized error handler ───────────────
 class AppError extends Error {
@@ -181,6 +188,7 @@ async function runSimulationTick() {
   const agent = allAgents[Math.floor(Math.random() * allAgents.length)];
   const prompt = MOCK_PROMPTS[Math.floor(Math.random() * MOCK_PROMPTS.length)];
 
+  incrementSimulationTicks();
   logger.info(`[Sim] Agent '${agent.name}' (${agent.deptName}) sending request...`);
 
   const result = await processChatCompletion({
@@ -237,25 +245,27 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
     };
   }
 
-  const agentTokenLimit = computeTokenAllocation(
-    currentDb.totalBudget, dept.allocation, agent.allocation
-  );
+    const agentTokenLimit = computeTokenAllocation(
+      currentDb.totalBudget, dept.allocation, agent.allocation
+    );
 
-  // Budget check with cascade fallback (reads latest snapshot, no lock needed — recordUsage is atomic)
-  const status = getUsageStatus(currentDb, agentId, agentTokenLimit, model);
+    // Budget check with cascade fallback
+    const status = getUsageStatus(currentDb, agentId, agentTokenLimit, model);
 
-  if (status.blocked) {
-    return {
-      statusCode: 429,
-      error: {
-        message: `Budget Exceeded: Agent '${agent.name}' has used ${status.usage} of ${agentTokenLimit.toFixed(0)} tokens.`,
-        type: 'insufficient_budget',
-        code: 'budget_exceeded'
-      }
-    };
-  }
+    if (status.blocked) {
+      incrementBudgetBlocked();
+      return {
+        statusCode: 429,
+        error: {
+          message: `Budget Exceeded: Agent '${agent.name}' has used ${status.usage} of ${agentTokenLimit.toFixed(0)} tokens.`,
+          type: 'insufficient_budget',
+          code: 'budget_exceeded'
+        }
+      };
+    }
 
-  if (status.fallbackTo) {
+    if (status.fallbackTo) {
+      incrementFallbacks();
     logger.info(`[Fallback] Agent '${agent.name}': token budget exhausted on ${model}, falling back to ${status.fallbackTo}`);
     // Fallback without re-checking budget — cheaper model reduces dollar cost
     return processChatCompletion({
@@ -289,10 +299,11 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
         return { statusCode: response.status, error: data.error };
       }
 
-      if (data.usage) {
-        await db.recordUsage(agentId, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
-        logger.info(`[OpenAI] Agent '${agent.name}' consumed ${data.usage.total_tokens} tokens on ${model}.`);
-      }
+        if (data.usage) {
+          await db.recordUsage(agentId, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
+          incrementTokens(data.usage.total_tokens || 0);
+          logger.info(`[OpenAI] Agent '${agent.name}' consumed ${data.usage.total_tokens} tokens on ${model}.`);
+        }
 
       if (_fallbackActive) {
         data._fallback = true;
@@ -309,11 +320,12 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
           error: { message: 'OpenAI API request timed out.', type: 'api_error', code: 'upstream_timeout' }
         };
       }
-      logger.error('OpenAI API call failed:', err);
-      return {
-        statusCode: 502,
-        error: { message: 'OpenAI API request failed. Check network connectivity.', type: 'api_error', code: 'upstream_error' }
-      };
+        incrementUpstreamErrors();
+        logger.error('OpenAI API call failed:', err);
+        return {
+          statusCode: 502,
+          error: { message: 'OpenAI API request failed. Check network connectivity.', type: 'api_error', code: 'upstream_error' }
+        };
     }
   }
 
@@ -371,14 +383,17 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// 0b. Initialization — returns control plane token + status (no auth)
+// 0b. Prometheus metrics endpoint (no auth, no rate limit)
+app.get('/api/metrics', metricsEndpoint);
+
+// 0c. Initialization — returns control plane token + status (no auth)
 app.get('/api/init', (req, res) => {
   const data = db.get();
   res.status(200).json({ token: CONTROL_PLANE_TOKEN, ...data });
 });
 
 // 1. LLM Chat completions — OpenAI SDK compatible
-app.post('/v1/chat/completions', async (req, res) => {
+app.post('/v1/chat/completions', validate(chatCompletionSchema), async (req, res) => {
   const authHeader = req.headers['authorization'];
   let swarmKey = null;
 
@@ -401,19 +416,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     });
   }
 
-  const { model, messages } = req.body;
-
-  if (!model || typeof model !== 'string') {
-    return res.status(400).json({
-      error: { message: 'Missing or invalid field: model.', type: 'invalid_request_error', code: 'missing_fields' }
-    });
-  }
-
-  if (!messages || !Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({
-      error: { message: 'Missing or invalid field: messages (must be a non-empty array).', type: 'invalid_request_error', code: 'missing_fields' }
-    });
-  }
+  const { model, messages } = req.validatedBody;
 
   const result = await processChatCompletion({
     agentId: agentInfo.agentId,
@@ -449,7 +452,30 @@ app.post('/api/config', controlPlaneLimiter, requireControlAuth, async (req, res
   }
 });
 
-// 3. Control Plane: Get status
+// 3a. Control Plane: SSE stream (no rate limit — single persistent connection)
+app.get('/api/stream', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+
+  const sendState = () => {
+    const data = db.get();
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  sendState();
+
+  const interval = setInterval(sendState, 1000);
+
+  req.on('close', () => {
+    clearInterval(interval);
+  });
+});
+
+// 3b. Control Plane: Get status (used as fallback, rate limited)
 app.get('/api/status', controlPlaneLimiter, (req, res) => {
   res.status(200).json(db.get());
 });
