@@ -117,4 +117,58 @@ describe('database.js', () => {
       assert.equal(db.get().simulationActive, false);
     });
   });
+
+  describe('createSwarmKey', () => {
+    it('creates key for valid agent', async () => {
+      const result = await db.createSwarmKey('code-review', 'engineering');
+      assert.ok(result);
+      assert.equal(result.agentId, 'code-review');
+      assert.equal(result.deptId, 'engineering');
+      assert.ok(result.key.startsWith('swarm-'));
+    });
+
+    it('returns null for unknown agent', async () => {
+      const result = await db.createSwarmKey('nonexistent', 'engineering');
+      assert.equal(result, null);
+    });
+
+    it('returns null for unknown department', async () => {
+      const result = await db.createSwarmKey('code-review', 'fake-dept');
+      assert.equal(result, null);
+    });
+  });
+
+  describe('revokeSwarmKey', () => {
+    it('revokes an existing key', async () => {
+      const { key } = await db.createSwarmKey('content-agent', 'marketing');
+      const revoked = await db.revokeSwarmKey(key);
+      assert.ok(revoked);
+      assert.equal(revoked.agentId, 'content-agent');
+      // Key should no longer be valid
+      assert.equal(db.getAgentBySwarmKey(key), null);
+    });
+
+    it('returns null for non-existent key', async () => {
+      const result = await db.revokeSwarmKey('swarm-nonexistent-abc123');
+      assert.equal(result, null);
+    });
+  });
+
+  describe('regenerateSingleSwarmKey', () => {
+    it('replaces an existing key', async () => {
+      const { key: oldKey } = await db.createSwarmKey('lead-scoring', 'sales');
+      const result = await db.regenerateSingleSwarmKey(oldKey);
+      assert.ok(result);
+      assert.equal(result.agentId, 'lead-scoring');
+      // Old key should be invalid
+      assert.equal(db.getAgentBySwarmKey(oldKey), null);
+      // New key should be valid
+      assert.ok(db.getAgentBySwarmKey(result.key));
+    });
+
+    it('returns null for non-existent key', async () => {
+      const result = await db.regenerateSingleSwarmKey('swarm-nonexistent-abc123');
+      assert.equal(result, null);
+    });
+  });
 });

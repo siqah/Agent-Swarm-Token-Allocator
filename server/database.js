@@ -413,6 +413,82 @@ class Database {
       return deepClone(this.data.swarmKeys);
     });
   }
+
+  async createSwarmKey(agentId, deptId) {
+    return this._mutex.withLock(async () => {
+      const dept = this.data.departments.find((d) => d.id === deptId);
+      const agent = dept?.agents.find((a) => a.id === agentId);
+      if (!agent) return null;
+
+      const newKey = this.generateSwarmKey(agentId, agent.name);
+      agent.swarmKey = newKey;
+      this.data.swarmKeys[newKey] = {
+        agentId,
+        deptId,
+        name: agent.name,
+      };
+
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return { key: newKey, agentId, deptId, name: agent.name };
+    });
+  }
+
+  async revokeSwarmKey(key) {
+    return this._mutex.withLock(async () => {
+      const info = this.data.swarmKeys[key];
+      if (!info) return null;
+
+      delete this.data.swarmKeys[key];
+
+      // Clear the swarmKey field on the agent
+      this.data.departments.forEach((dept) => {
+        dept.agents.forEach((agent) => {
+          if (agent.swarmKey === key) {
+            agent.swarmKey = null;
+          }
+        });
+      });
+
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return info;
+    });
+  }
+
+  async regenerateSingleSwarmKey(key) {
+    return this._mutex.withLock(async () => {
+      const info = this.data.swarmKeys[key];
+      if (!info) return null;
+
+      delete this.data.swarmKeys[key];
+      const newKey = this.generateSwarmKey(info.agentId, info.name);
+
+      this.data.swarmKeys[newKey] = { ...info };
+
+      // Update the agent's swarmKey field
+      this.data.departments.forEach((dept) => {
+        dept.agents.forEach((agent) => {
+          if (agent.swarmKey === key) {
+            agent.swarmKey = newKey;
+          }
+        });
+      });
+
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return { key: newKey, ...info };
+    });
+  }
 }
 
 export const db = new Database();

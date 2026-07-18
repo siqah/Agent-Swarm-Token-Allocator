@@ -67,8 +67,6 @@ app.use(trackRequest);
 
 app.use('/v1/', apiLimiter);
 
-app.use('/v1/', apiLimiter);
-
 const CONTROL_PLANE_TOKEN = process.env.CONTROL_PLANE_TOKEN ||
   `ctrl-${Math.random().toString(36).substring(2, 10)}`;
 
@@ -82,8 +80,6 @@ function requireControlAuth(req, res, next) {
   }
   next();
 }
-
-app.use('/v1/', apiLimiter);
 
 // ── Centralized error handler ───────────────
 class AppError extends Error {
@@ -115,17 +111,38 @@ function errorHandler(err, req, res, _next) {
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || null;
 const OPENAI_TIMEOUT = parseInt(process.env.OPENAI_TIMEOUT, 10) || 60000;
 
+import { getProviderForModel, getAvailableProviders, getFallbackChain } from './providers/index.js';
+
 const MODEL_PRICING = {
   'gpt-5.6-sol':   { input: 5.00, output: 30.00 },
   'gpt-5.6-terra': { input: 2.50, output: 15.00 },
   'gpt-5.6-luna':  { input: 1.00, output: 6.00 },
   'gpt-5.4-nano':  { input: 0.20, output: 1.25 },
+  // Anthropic pricing
+  'claude-3.5-sonnet': { input: 3.00, output: 15.00 },
+  'claude-3.5-haiku':  { input: 1.00, output: 5.00 },
+  'claude-3-opus':     { input: 15.00, output: 75.00 },
+  // Google pricing
+  'gemini-2.0-flash':  { input: 0.10, output: 0.40 },
+  'gemini-2.0-pro':    { input: 1.25, output: 5.00 },
+  'gemini-1.5-pro':    { input: 1.25, output: 5.00 },
+  'gemini-1.5-flash':  { input: 0.075, output: 0.30 },
+  // Groq pricing
+  'llama-3.3-70b':     { input: 0.59, output: 0.79 },
+  'llama-3.1-8b':      { input: 0.05, output: 0.08 },
+  'mixtral-8x7b':      { input: 0.24, output: 0.24 },
+  'deepseek-r1':       { input: 0.55, output: 2.19 },
 };
 
 const FALLBACK_CHAIN = ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.4-nano'];
+const CROSS_PROVIDER_FALLBACK = true;
+
+function getPrice(modelId) {
+  return MODEL_PRICING[modelId] || MODEL_PRICING['gpt-5.6-terra'];
+}
 
 function estimateCost(modelId, inputTokens, outputTokens) {
-  const p = MODEL_PRICING[modelId] || MODEL_PRICING['gpt-5.6-terra'];
+  const p = getPrice(modelId);
   return (inputTokens / 1_000_000) * p.input + (outputTokens / 1_000_000) * p.output;
 }
 
@@ -140,9 +157,16 @@ function getUsageStatus(dbData, agentId, agentTokenLimit, requestedModel) {
     return { blocked: false, usage };
   }
 
-  const idx = FALLBACK_CHAIN.indexOf(requestedModel);
-  if (idx >= 0 && idx < FALLBACK_CHAIN.length - 1) {
-    return { blocked: false, usage, fallbackTo: FALLBACK_CHAIN[idx + 1] };
+  // Cross-provider fallback chain
+  const chain = CROSS_PROVIDER_FALLBACK
+    ? getFallbackChain(requestedModel)
+    : FALLBACK_CHAIN.slice(FALLBACK_CHAIN.indexOf(requestedModel) + 1);
+
+  for (const fallbackModel of chain) {
+    const provider = getProviderForModel(fallbackModel);
+    if (provider) {
+      return { blocked: false, usage, fallbackTo: fallbackModel };
+    }
   }
 
   return { blocked: true, usage, atCheapest: true };
@@ -227,7 +251,7 @@ if (db.get().simulationActive) {
 }
 
 // ── Core Chat Completion Logic ───────────────
-async function processChatCompletion({ agentId, deptId, model, messages, _originalModel, _fallbackActive }) {
+async function processChatCompletion({ agentId, deptId, model, messages, temperature, max_tokens, stream, _originalModel, _fallbackActive }) {
   const currentDb = db.get();
   const originalModel = _originalModel || model;
 
@@ -245,91 +269,91 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
     };
   }
 
-    const agentTokenLimit = computeTokenAllocation(
-      currentDb.totalBudget, dept.allocation, agent.allocation
-    );
+  const agentTokenLimit = computeTokenAllocation(
+    currentDb.totalBudget, dept.allocation, agent.allocation
+  );
 
-    // Budget check with cascade fallback
-    const status = getUsageStatus(currentDb, agentId, agentTokenLimit, model);
+  // Budget check with cascade fallback
+  const status = getUsageStatus(currentDb, agentId, agentTokenLimit, model);
 
-    if (status.blocked) {
-      incrementBudgetBlocked();
-      return {
-        statusCode: 429,
-        error: {
-          message: `Budget Exceeded: Agent '${agent.name}' has used ${status.usage} of ${agentTokenLimit.toFixed(0)} tokens.`,
-          type: 'insufficient_budget',
-          code: 'budget_exceeded'
-        }
-      };
-    }
+  if (status.blocked) {
+    incrementBudgetBlocked();
+    return {
+      statusCode: 429,
+      error: {
+        message: `Budget Exceeded: Agent '${agent.name}' has used ${status.usage} of ${agentTokenLimit.toFixed(0)} tokens.`,
+        type: 'insufficient_budget',
+        code: 'budget_exceeded'
+      }
+    };
+  }
 
-    if (status.fallbackTo) {
-      incrementFallbacks();
+  if (status.fallbackTo) {
+    incrementFallbacks();
     logger.info(`[Fallback] Agent '${agent.name}': token budget exhausted on ${model}, falling back to ${status.fallbackTo}`);
-    // Fallback without re-checking budget — cheaper model reduces dollar cost
     return processChatCompletion({
-      agentId, deptId, model: status.fallbackTo, messages,
+      agentId, deptId, model: status.fallbackTo, messages, temperature, max_tokens, stream,
       _originalModel: originalModel, _fallbackActive: true
     });
   }
 
-  // ── Execute request ────────────────
-  if (OPENAI_API_KEY) {
+  // ── Execute via provider ───────────
+  const provider = getProviderForModel(model);
+
+  if (provider && provider.isAvailable()) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT);
 
     try {
-      const requestBody = { model, messages };
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`
-        },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      });
+      if (stream) {
+        const gen = provider.stream({ model, messages, temperature, max_tokens, signal: controller.signal });
+        return { statusCode: 200, stream: gen, agentId, agentName: agent.name, originalModel, fallbackActive: _fallbackActive };
+      }
+
+      const data = await provider.call({ model, messages, temperature, max_tokens, signal: controller.signal });
       clearTimeout(timeout);
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        logger.error(`[OpenAI Error] ${response.status}:`, data.error);
-        return { statusCode: response.status, error: data.error };
+      if (data.usage) {
+        await db.recordUsage(agentId, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
+        incrementTokens(data.usage.total_tokens || 0);
+        logger.info(`[${provider.name}] Agent '${agent.name}' consumed ${data.usage.total_tokens} tokens on ${model}.`);
       }
 
-        if (data.usage) {
-          await db.recordUsage(agentId, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
-          incrementTokens(data.usage.total_tokens || 0);
-          logger.info(`[OpenAI] Agent '${agent.name}' consumed ${data.usage.total_tokens} tokens on ${model}.`);
-        }
+      const result = {
+        statusCode: 200,
+        id: data.id,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: data.model,
+        choices: data.choices,
+        usage: data.usage,
+      };
 
       if (_fallbackActive) {
-        data._fallback = true;
-        data._requested_model = originalModel;
+        result._fallback = true;
+        result._requested_model = originalModel;
       }
 
-      return { statusCode: 200, ...data };
+      return result;
     } catch (err) {
       clearTimeout(timeout);
       if (err.name === 'AbortError') {
-        logger.error(`[OpenAI Timeout] Request to ${model} timed out after ${OPENAI_TIMEOUT}ms`);
+        logger.error(`[Provider Timeout] Request to ${model} timed out after ${OPENAI_TIMEOUT}ms`);
         return {
           statusCode: 504,
-          error: { message: 'OpenAI API request timed out.', type: 'api_error', code: 'upstream_timeout' }
+          error: { message: 'Upstream API request timed out.', type: 'api_error', code: 'upstream_timeout' }
         };
       }
-        incrementUpstreamErrors();
-        logger.error('OpenAI API call failed:', err);
-        return {
-          statusCode: 502,
-          error: { message: 'OpenAI API request failed. Check network connectivity.', type: 'api_error', code: 'upstream_error' }
-        };
+      incrementUpstreamErrors();
+      logger.error(`[${provider.name} Error]`, err);
+      return {
+        statusCode: err.statusCode || 502,
+        error: { message: err.message || 'Upstream API request failed.', type: 'api_error', code: err.code || 'upstream_error' }
+      };
     }
   }
 
-  // Mock Fallback
+  // Mock Fallback (no provider configured)
   const promptTokens = Math.floor(Math.random() * 800) + 200;
   const completionTokens = Math.floor(Math.random() * 1200) + 300;
 
@@ -365,6 +389,50 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
   return result;
 }
 
+async function pipeStreamToResponse(gen, res, agentId, agentName, originalModel, fallbackActive) {
+  let finalUsage = null;
+  let first = true;
+  let modelName = '';
+
+  for await (const chunk of gen) {
+    if (chunk.usage) {
+      finalUsage = chunk.usage;
+    }
+    if (!modelName && chunk.model) {
+      modelName = chunk.model;
+    }
+
+    // OpenAI-style SSE format
+    const payload = {
+      choices: chunk.choices?.map((c) => ({
+        index: c.index,
+        delta: c.delta || {},
+        finish_reason: c.finish_reason || null,
+      })),
+    };
+    if (chunk.usage) {
+      payload.usage = chunk.usage;
+    }
+
+    if (first && fallbackActive) {
+      res.set('X-Fallback-From', originalModel);
+      res.set('X-Fallback-To', modelName || 'unknown');
+      first = false;
+    }
+
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  }
+
+  if (finalUsage && agentId) {
+    await db.recordUsage(agentId, finalUsage.prompt_tokens || 0, finalUsage.completion_tokens || 0);
+    incrementTokens(finalUsage.total_tokens || 0);
+    logger.info(`[Stream] Agent '${agentName}' consumed ${finalUsage.total_tokens} tokens.`);
+  }
+
+  res.write('data: [DONE]\n\n');
+  res.end();
+}
+
 
 // ── Endpoints ────────────────────────────────
 
@@ -375,6 +443,7 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     openai: OPENAI_API_KEY ? 'configured' : 'mock',
+    providers: getAvailableProviders(),
     postgres: db.isPostgres,
     simulation: db.get().simulationActive,
     version: '1.0.0',
@@ -416,17 +485,31 @@ app.post('/v1/chat/completions', validate(chatCompletionSchema), async (req, res
     });
   }
 
-  const { model, messages } = req.validatedBody;
+  const { model, messages, stream, temperature, max_tokens } = req.validatedBody;
 
   const result = await processChatCompletion({
     agentId: agentInfo.agentId,
     deptId: agentInfo.deptId,
     model,
-    messages
+    messages,
+    temperature,
+    max_tokens,
+    stream: !!stream,
   });
 
   if (result.error) {
     return res.status(result.statusCode || 400).json({ error: result.error });
+  }
+
+  // Handle streaming response
+  if (result.stream) {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    return await pipeStreamToResponse(result.stream, res, result.agentId, result.agentName, result.originalModel, result.fallbackActive);
   }
 
   if (result._fallback) {
@@ -463,7 +546,7 @@ app.get('/api/stream', (req, res) => {
 
   const sendState = () => {
     const data = db.get();
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    res.write(`data: ${JSON.stringify({ ...data, availableProviders: getAvailableProviders() })}\n\n`);
   };
 
   sendState();
@@ -501,7 +584,9 @@ app.post('/api/usage/reset', controlPlaneLimiter, requireControlAuth, async (req
   }
 });
 
-// 6. Control Plane: Get all swarm keys
+// 6. Control Plane: Virtual Swarm Key CRUD
+
+// 6a. Get all swarm keys
 app.get('/api/keys', controlPlaneLimiter, requireControlAuth, (req, res) => {
   const data = db.get();
   const keys = data.swarmKeys || {};
@@ -511,7 +596,58 @@ app.get('/api/keys', controlPlaneLimiter, requireControlAuth, (req, res) => {
   res.status(200).json({ keys: keyList });
 });
 
-// 7. Control Plane: Regenerate all swarm keys
+// 6b. Create a new swarm key for a specific agent
+app.post('/api/keys', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const { agentId, deptId } = req.body;
+    if (!agentId || !deptId) {
+      return res.status(400).json({
+        error: { message: 'agentId and deptId are required.', type: 'invalid_request_error', code: 'missing_fields' }
+      });
+    }
+    const key = await db.createSwarmKey(agentId, deptId);
+    if (!key) {
+      return res.status(404).json({
+        error: { message: `Agent '${agentId}' not found in department '${deptId}'.`, type: 'invalid_request_error', code: 'not_found' }
+      });
+    }
+    res.status(201).json({ success: true, key });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 6c. Revoke a specific swarm key
+app.delete('/api/keys/:key', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const revoked = await db.revokeSwarmKey(req.params.key);
+    if (!revoked) {
+      return res.status(404).json({
+        error: { message: 'Swarm key not found.', type: 'invalid_request_error', code: 'not_found' }
+      });
+    }
+    res.status(200).json({ success: true, revoked });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 6d. Regenerate a single swarm key
+app.post('/api/keys/:key/regenerate', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const result = await db.regenerateSingleSwarmKey(req.params.key);
+    if (!result) {
+      return res.status(404).json({
+        error: { message: 'Swarm key not found.', type: 'invalid_request_error', code: 'not_found' }
+      });
+    }
+    res.status(200).json({ success: true, key: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 6e. Regenerate all swarm keys
 app.post('/api/keys/regenerate', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
   try {
     const keys = await db.regenerateSwarmKeys();
@@ -590,4 +726,4 @@ if (!process.env.TEST_MODE) {
   });
 }
 
-export { processChatCompletion, estimateCost, MODEL_PRICING, FALLBACK_CHAIN, app, server, AppError };
+export { processChatCompletion, estimateCost, MODEL_PRICING, FALLBACK_CHAIN, app, server, AppError, pipeStreamToResponse };
