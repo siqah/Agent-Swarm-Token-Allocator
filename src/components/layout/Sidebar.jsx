@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useCallback } from 'react';
 import { useAllocation, useAllocationDispatch, ACTIONS } from '../../context/AllocationContext';
 import SliderGroup from '../controls/SliderGroup';
 import styles from './Sidebar.module.css';
@@ -7,9 +7,18 @@ const Sidebar = memo(function Sidebar({ onHoverNode }) {
   const { departments } = useAllocation();
   const dispatch = useAllocationDispatch();
 
+  const handleAddDept = useCallback(() => {
+    dispatch({ type: ACTIONS.ADD_DEPT });
+  }, [dispatch]);
+
   return (
     <aside className={styles.sidebar}>
-      <span className={styles.sidebarTitle}>Allocation</span>
+      <div className={styles.sidebarHeader}>
+        <span className={styles.sidebarTitle}>Allocation</span>
+        <button className={styles.addButton} onClick={handleAddDept} title="Add department">
+          +
+        </button>
+      </div>
 
       <div className={styles.groupList}>
         {departments.map((dept) => (

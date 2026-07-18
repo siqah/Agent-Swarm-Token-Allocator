@@ -12,16 +12,26 @@ export default function SliderGroup({ department, onHoverNode }) {
   const alerts = useAlerts();
   const [isOpen, setIsOpen] = useState(true);
   const [copiedKey, setCopiedKey] = useState(null);
-  const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState(department.name);
-  const inputRef = useRef(null);
+  const [editingDept, setEditingDept] = useState(false);
+  const [editDeptName, setEditDeptName] = useState(department.name);
+  const [editingAgent, setEditingAgent] = useState(null);
+  const [editAgentName, setEditAgentName] = useState('');
+  const deptInputRef = useRef(null);
+  const agentInputRef = useRef(null);
 
   useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
+    if (editingDept && deptInputRef.current) {
+      deptInputRef.current.focus();
+      deptInputRef.current.select();
     }
-  }, [editing]);
+  }, [editingDept]);
+
+  useEffect(() => {
+    if (editingAgent && agentInputRef.current) {
+      agentInputRef.current.focus();
+      agentInputRef.current.select();
+    }
+  }, [editingAgent]);
 
   const handleCopyKey = useCallback(async (key) => {
     try {
@@ -62,32 +72,70 @@ export default function SliderGroup({ department, onHoverNode }) {
     [dispatch, department.id]
   );
 
-  const startEditing = useCallback((e) => {
+  const handleRemoveDept = useCallback((e) => {
     e.stopPropagation();
-    setEditName(department.name);
-    setEditing(true);
+    dispatch({ type: ACTIONS.REMOVE_DEPT, payload: department.id });
+  }, [dispatch, department.id]);
+
+  const handleAddAgent = useCallback((e) => {
+    e.stopPropagation();
+    dispatch({ type: ACTIONS.ADD_AGENT, payload: department.id });
+  }, [dispatch, department.id]);
+
+  const handleRemoveAgent = useCallback((agentId, e) => {
+    e.stopPropagation();
+    dispatch({ type: ACTIONS.REMOVE_AGENT, payload: { deptId: department.id, agentId } });
+  }, [dispatch, department.id]);
+
+  const startEditDept = useCallback((e) => {
+    e.stopPropagation();
+    setEditDeptName(department.name);
+    setEditingDept(true);
   }, [department.name]);
 
-  const finishEditing = useCallback(() => {
-    setEditing(false);
-    const trimmed = editName.trim();
+  const finishEditDept = useCallback(() => {
+    setEditingDept(false);
+    const trimmed = editDeptName.trim();
     if (trimmed && trimmed !== department.name) {
       dispatch({
         type: ACTIONS.RENAME_DEPT,
         payload: { deptId: department.id, name: trimmed },
       });
     }
-  }, [editName, department.id, department.name, dispatch]);
+  }, [editDeptName, department.id, department.name, dispatch]);
 
-  const handleKeyDown = useCallback((e) => {
-    if (e.key === 'Enter') {
-      e.target.blur();
-    }
+  const handleDeptKeyDown = useCallback((e) => {
+    if (e.key === 'Enter') e.target.blur();
     if (e.key === 'Escape') {
-      setEditName(department.name);
-      setEditing(false);
+      setEditDeptName(department.name);
+      setEditingDept(false);
     }
   }, [department.name]);
+
+  const startEditAgent = useCallback((agentId, agentName, e) => {
+    e.stopPropagation();
+    setEditingAgent(agentId);
+    setEditAgentName(agentName);
+  }, []);
+
+  const finishEditAgent = useCallback(() => {
+    const agentId = editingAgent;
+    setEditingAgent(null);
+    const trimmed = editAgentName.trim();
+    if (trimmed && agentId) {
+      dispatch({
+        type: ACTIONS.RENAME_AGENT,
+        payload: { deptId: department.id, agentId, name: trimmed },
+      });
+    }
+  }, [editAgentName, editingAgent, department.id, dispatch]);
+
+  const handleAgentKeyDown = useCallback((e) => {
+    if (e.key === 'Enter') e.target.blur();
+    if (e.key === 'Escape') {
+      setEditingAgent(null);
+    }
+  }, []);
 
   const color = getComputedStyle(document.documentElement)
     .getPropertyValue(department.colorVar)
@@ -101,24 +149,33 @@ export default function SliderGroup({ department, onHoverNode }) {
         onMouseEnter={() => onHoverNode?.(department.id)}
         onMouseLeave={() => onHoverNode?.(null)}
       >
-        {editing ? (
+        {editingDept ? (
           <input
-            ref={inputRef}
+            ref={deptInputRef}
             className={styles.nameInput}
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            onBlur={finishEditing}
-            onKeyDown={handleKeyDown}
+            value={editDeptName}
+            onChange={(e) => setEditDeptName(e.target.value)}
+            onBlur={finishEditDept}
+            onKeyDown={handleDeptKeyDown}
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <span className={styles.groupName} onClick={startEditing}>
+          <span className={styles.groupName} onClick={startEditDept}>
             {department.name}
           </span>
         )}
         <span className={styles.groupPercent} style={{ color }}>
           {formatPercent(department.allocation)}
         </span>
+        {department.agents.length === 1 && department.agents[0].allocation === 100 ? null : (
+          <button
+            className={styles.actionButton}
+            onClick={handleRemoveDept}
+            title="Remove department"
+          >
+            ×
+          </button>
+        )}
         <span className={`${styles.chevron} ${isOpen ? styles.chevronOpen : ''}`}>
           ▶
         </span>
@@ -148,13 +205,27 @@ export default function SliderGroup({ department, onHoverNode }) {
                 onMouseLeave={() => onHoverNode?.(null)}
               >
                 <span className={styles.sliderLabel}>
-                  {agent.name}
+                  {editingAgent === agent.id ? (
+                    <input
+                      ref={agentInputRef}
+                      className={styles.agentNameInput}
+                      value={editAgentName}
+                      onChange={(e) => setEditAgentName(e.target.value)}
+                      onBlur={finishEditAgent}
+                      onKeyDown={handleAgentKeyDown}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span className={styles.agentName} onClick={(e) => startEditAgent(agent.id, agent.name, e)}>
+                      {agent.name}
+                    </span>
+                  )}
                   <AlertBadge level={alert?.level} />
                 </span>
 
                 <button
                   type="button"
-                  onClick={() => handleAgentChange(agent.id, Math.max(0, agent.allocation - 5))}
+                  onClick={(e) => { e.stopPropagation(); handleAgentChange(agent.id, Math.max(0, agent.allocation - 5)); }}
                   className={styles.adjustButton}
                   style={{ '--accent-color': color }}
                 >
@@ -178,7 +249,7 @@ export default function SliderGroup({ department, onHoverNode }) {
 
                 <button
                   type="button"
-                  onClick={() => handleAgentChange(agent.id, Math.min(100, agent.allocation + 5))}
+                  onClick={(e) => { e.stopPropagation(); handleAgentChange(agent.id, Math.min(100, agent.allocation + 5)); }}
                   className={`${styles.adjustButton} ${styles.increaseButton}`}
                   style={{ '--accent-color': color }}
                 >
@@ -186,10 +257,21 @@ export default function SliderGroup({ department, onHoverNode }) {
                 </button>
 
                 <span className={styles.sliderValue}>{formatPercent(agent.allocation)}</span>
+
+                {department.agents.length > 1 && (
+                  <button
+                    className={styles.actionButton}
+                    onClick={(e) => handleRemoveAgent(agent.id, e)}
+                    title="Remove agent"
+                  >
+                    ×
+                  </button>
+                )}
+
                 {agent.swarmKey && (
                   <button
                     className={`${styles.keyButton} ${copiedKey === agent.swarmKey ? styles.keyCopied : ''}`}
-                    onClick={() => handleCopyKey(agent.swarmKey)}
+                    onClick={(e) => { e.stopPropagation(); handleCopyKey(agent.swarmKey); }}
                     title={copiedKey === agent.swarmKey ? 'Copied!' : 'Copy Virtual Swarm Key'}
                   >
                     <code className={styles.swarmKeyText}>
@@ -210,6 +292,12 @@ export default function SliderGroup({ department, onHoverNode }) {
               </div>
             );
           })}
+          <button
+            className={styles.addAgentButton}
+            onClick={(e) => { e.stopPropagation(); handleAddAgent(e); }}
+          >
+            + Add agent
+          </button>
         </div>
       )}
     </div>

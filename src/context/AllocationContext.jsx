@@ -36,6 +36,11 @@ export const ACTIONS = {
   SET_AGENT_ALLOCATION: 'SET_AGENT_ALLOCATION',
   SET_THRESHOLDS: 'SET_THRESHOLDS',
   RENAME_DEPT: 'RENAME_DEPT',
+  ADD_DEPT: 'ADD_DEPT',
+  REMOVE_DEPT: 'REMOVE_DEPT',
+  RENAME_AGENT: 'RENAME_AGENT',
+  ADD_AGENT: 'ADD_AGENT',
+  REMOVE_AGENT: 'REMOVE_AGENT',
   RESET: 'RESET',
   SET_STATE: 'SET_STATE',
 };
@@ -97,6 +102,35 @@ function fixRoundingError(items) {
   return result;
 }
 
+/**
+ * Redistribute `amount` proportionally across items, excluding item at `excludeIndex`.
+ * Returns new items array with updated allocations.
+ */
+function redistribute(items, amount, excludeIndex = -1) {
+  const others = items.filter((_, i) => i !== excludeIndex);
+  const othersTotal = others.reduce((s, item) => s + item.allocation, 0);
+
+  if (othersTotal === 0) {
+    const share = amount / others.length;
+    return items.map((item, i) =>
+      i === excludeIndex ? item : { ...item, allocation: share }
+    );
+  }
+
+  return items.map((item, i) => {
+    if (i === excludeIndex) return item;
+    const proportion = item.allocation / othersTotal;
+    return { ...item, allocation: Math.round(proportion * amount * 100) / 100 };
+  });
+}
+
+let _idCounter = Date.now();
+function uid() {
+  return `${++_idCounter}`;
+}
+
+const DEPT_COLORS = ['--color-engineering', '--color-marketing', '--color-sales', '--color-operations', '--color-budget'];
+
 // ── Reducer ──────────────────────────────────
 function allocationReducer(state, action) {
   switch (action.type) {
@@ -155,6 +189,94 @@ function allocationReducer(state, action) {
         ...state,
         thresholds: { ...state.thresholds, ...action.payload },
       };
+    }
+
+    case ACTIONS.ADD_DEPT: {
+      const newDept = {
+        id: `dept-${uid()}`,
+        name: 'New Department',
+        colorVar: DEPT_COLORS[state.departments.length % DEPT_COLORS.length],
+        allocation: 5,
+        agents: [
+          { id: `agent-${uid()}`, name: 'New Agent', allocation: 100, description: '' },
+        ],
+      };
+      const depts = redistribute(state.departments, 95);
+      return {
+        ...state,
+        departments: [...depts, newDept].map((d, i) => {
+          const existing = state.departments[i];
+          return i < state.departments.length
+            ? { ...existing, allocation: d.allocation }
+            : d;
+        }),
+      };
+    }
+
+    case ACTIONS.REMOVE_DEPT: {
+      const removeDeptId = action.payload;
+      const removed = state.departments.find((d) => d.id === removeDeptId);
+      if (!removed) return state;
+      const remaining = state.departments.filter((d) => d.id !== removeDeptId);
+      const redistributed = redistribute(remaining, 100);
+      return {
+        ...state,
+        departments: redistributed.map((d, i) => ({
+          ...remaining[i],
+          allocation: d.allocation,
+        })),
+      };
+    }
+
+    case ACTIONS.RENAME_AGENT: {
+      const { deptId: raDeptId, agentId: raAgentId, name: raName } = action.payload;
+      return {
+        ...state,
+        departments: state.departments.map((d) =>
+          d.id === raDeptId
+            ? { ...d, agents: d.agents.map((a) => (a.id === raAgentId ? { ...a, name: raName } : a)) }
+            : d
+        ),
+      };
+    }
+
+    case ACTIONS.ADD_AGENT: {
+      const addDeptId = action.payload;
+      const deptIdx = state.departments.findIndex((d) => d.id === addDeptId);
+      if (deptIdx === -1) return state;
+      const dept = state.departments[deptIdx];
+      const newAgent = {
+        id: `agent-${uid()}`,
+        name: 'New Agent',
+        allocation: 10,
+        description: '',
+      };
+      const agents = redistribute(dept.agents, 90);
+      const newDepartments = [...state.departments];
+      newDepartments[deptIdx] = {
+        ...dept,
+        agents: [...agents.map((a, i) => ({ ...dept.agents[i], allocation: a.allocation })), newAgent],
+      };
+      return { ...state, departments: newDepartments };
+    }
+
+    case ACTIONS.REMOVE_AGENT: {
+      const { deptId: rDeptId, agentId: rAgentId } = action.payload;
+      const rDeptIdx = state.departments.findIndex((d) => d.id === rDeptId);
+      if (rDeptIdx === -1) return state;
+      const rDept = state.departments[rDeptIdx];
+      const remainingAgents = rDept.agents.filter((a) => a.id !== rAgentId);
+      if (remainingAgents.length === 0) return state;
+      const redistributedAgents = redistribute(remainingAgents, 100);
+      const newDepts = [...state.departments];
+      newDepts[rDeptIdx] = {
+        ...rDept,
+        agents: redistributedAgents.map((a, i) => ({
+          ...remainingAgents[i],
+          allocation: a.allocation,
+        })),
+      };
+      return { ...state, departments: newDepts };
     }
 
     case ACTIONS.RENAME_DEPT: {
