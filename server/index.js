@@ -853,37 +853,43 @@ function shutdown(signal) {
 
   stopInternalSimulation();
 
-  // Stop accepting new connections
-  server.close(() => {
-    logger.info('HTTP server closed.');
+  const exit = () => {
     if (db.pool?.end) {
       db.pool.end().catch(() => {}).finally(() => process.exit(0));
     } else {
       process.exit(0);
     }
-  });
+  };
 
-  // Drain existing connections
-  for (const conn of connections) {
-    conn.end();
+  if (server) {
+    server.close(() => {
+      logger.info('HTTP server closed.');
+      exit();
+    });
+    for (const conn of connections) {
+      conn.end();
+    }
+  } else {
+    exit();
   }
 
-  // Force exit after 10s
   setTimeout(() => {
     logger.error('Forced shutdown after timeout.');
     process.exit(1);
   }, 10000).unref();
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('uncaughtException', (err) => {
-  logger.error('Uncaught exception:', err);
-  shutdown('UNCAUGHT_EXCEPTION');
-});
-process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled rejection:', reason);
-});
+if (!process.env.TEST_MODE) {
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('uncaughtException', (err) => {
+    logger.error('Uncaught exception:', err);
+    shutdown('UNCAUGHT_EXCEPTION');
+  });
+  process.on('unhandledRejection', (reason) => {
+    logger.error('Unhandled rejection:', reason);
+  });
+}
 
 // ── Sync provider keys from DB ─────────────
 syncProviderKeys(db);
