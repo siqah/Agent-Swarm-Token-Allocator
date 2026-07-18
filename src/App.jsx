@@ -6,8 +6,6 @@ import Sidebar from './components/layout/Sidebar';
 import SankeyDiagram from './components/sankey/SankeyDiagram';
 import MetricsPanel from './components/layout/MetricsPanel';
 import AlertToast from './components/feedback/AlertToast';
-import ExportButton from './components/feedback/ExportButton';
-import ImportButton from './components/feedback/ImportButton';
 import ErrorBoundary from './components/feedback/ErrorBoundary';
 import KeyboardShortcuts from './components/feedback/KeyboardShortcuts';
 import './styles/tokens.css';
@@ -262,13 +260,6 @@ function AppContent() {
         </div>
 
         <div className="status-bar-right">
-          <div className="status-group">
-            <ImportButton />
-          </div>
-          <div className="status-group">
-            <ExportButton />
-          </div>
-
           <button
             className="status-button"
             onClick={() => setViewMode((prev) => (prev === 'allocated' ? 'consumption' : 'allocated'))}
