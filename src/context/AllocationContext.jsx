@@ -408,6 +408,7 @@ export function useAllocation() {
   return context;
 }
 
+export { allocationReducer, undoable };
 export function useAllocationDispatch() {
   const context = useContext(AllocationDispatchContext);
   if (!context) {

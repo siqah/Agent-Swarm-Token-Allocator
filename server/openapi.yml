@@ -1,0 +1,320 @@
+openapi: 3.1.0
+info:
+  title: Agent Swarm Token Allocator — LLM Gateway API
+  version: 0.1.0
+  description: |
+    OpenAI SDK–compatible chat completions endpoint with per-agent
+    token budgeting, automatic model fallback, and rate limiting.
+
+servers:
+  - url: http://localhost:3001
+    description: Local development
+
+paths:
+  /v1/chat/completions:
+    post:
+      summary: Create a chat completion
+      description: |
+        Sends a conversation to an OpenAI-compatible LLM, subject to
+        token budget limits and automatic fallback across model tiers.
+      operationId: createChatCompletion
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChatCompletionRequest'
+      responses:
+        '200':
+          description: Successful completion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/stream:
+    get:
+      summary: Server-Sent Events stream
+      description: |
+        Subscribes to real-time allocation and usage updates via SSE.
+        Emits a JSON payload every ~3 seconds or on state changes.
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |-
+                  data: {"totalBudget":10000000,"usage":{"code-review":{"total":4500,"remaining":5500}}}
+
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /api/config:
+    get:
+      summary: Get current configuration
+      description: Returns the current total budget and per-agent allocation.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Current configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+    put:
+      summary: Update configuration
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigUpdate'
+      responses:
+        '200':
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /api/reset:
+    post:
+      summary: Reset usage counters
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Usage reset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /api/metrics:
+    get:
+      summary: Prometheus-style metrics
+      description: Exposes request counts, error rates, and token usage.
+      responses:
+        '200':
+          description: Metrics in Prometheus text format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      description: Virtual Swarm Key (generated from dashboard)
+
+  schemas:
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+        content:
+          type: string
+
+    CreateChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+          description: Model identifier
+          example: gpt-5.6-terra
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+          minItems: 1
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          default: 1
+        max_tokens:
+          type: integer
+          minimum: 1
+          maximum: 128000
+        stream:
+          type: boolean
+          default: false
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          enum: [chat.completion]
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                $ref: '#/components/schemas/ChatMessage'
+              finish_reason:
+                type: string
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            completion_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+
+    AgentConfig:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        allocation:
+          type: number
+          minimum: 0
+          maximum: 100
+        description:
+          type: string
+
+    DepartmentConfig:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        allocation:
+          type: number
+          minimum: 0
+          maximum: 100
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentConfig'
+
+    Config:
+      type: object
+      properties:
+        totalBudget:
+          type: integer
+          description: Monthly token budget
+        selectedModel:
+          type: string
+        thresholds:
+          type: object
+          properties:
+            warning:
+              type: number
+            danger:
+              type: number
+        departments:
+          type: array
+          items:
+            $ref: '#/components/schemas/DepartmentConfig'
+
+    ConfigUpdate:
+      type: object
+      properties:
+        totalBudget:
+          type: integer
+          minimum: 0
+        selectedModel:
+          type: string
+        thresholds:
+          type: object
+          properties:
+            warning:
+              type: number
+              minimum: 0
+              maximum: 100
+            danger:
+              type: number
+              minimum: 0
+              maximum: 100
+        departments:
+          type: array
+          items:
+            $ref: '#/components/schemas/DepartmentConfig'
+
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+            type:
+              type: string
+            code:
+              type: string
+
+  responses:
+    ValidationError:
+      description: Invalid request body
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    AuthenticationError:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    RateLimitError:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
