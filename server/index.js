@@ -106,6 +106,7 @@ function errorHandler(err, req, res, _next) {
 }
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || null;
+const OPENAI_TIMEOUT = parseInt(process.env.OPENAI_TIMEOUT, 10) || 60000;
 
 const MODEL_PRICING = {
   'gpt-5.6-sol':   { input: 5.00, output: 30.00 },
@@ -119,6 +120,25 @@ const FALLBACK_CHAIN = ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.4
 function estimateCost(modelId, inputTokens, outputTokens) {
   const p = MODEL_PRICING[modelId] || MODEL_PRICING['gpt-5.6-terra'];
   return (inputTokens / 1_000_000) * p.input + (outputTokens / 1_000_000) * p.output;
+}
+
+function computeTokenAllocation(totalBudget, deptAllocPct, agentAllocPct) {
+  return totalBudget * (deptAllocPct / 100) * (agentAllocPct / 100);
+}
+
+function getUsageStatus(dbData, agentId, agentTokenLimit, requestedModel) {
+  const usage = dbData.usage[agentId]?.total || 0;
+
+  if (usage < agentTokenLimit) {
+    return { blocked: false, usage };
+  }
+
+  const idx = FALLBACK_CHAIN.indexOf(requestedModel);
+  if (idx >= 0 && idx < FALLBACK_CHAIN.length - 1) {
+    return { blocked: false, usage, fallbackTo: FALLBACK_CHAIN[idx + 1] };
+  }
+
+  return { blocked: true, usage, atCheapest: true };
 }
 
 // ── Background Simulator Loop ────────────────
@@ -178,29 +198,30 @@ async function runSimulationTick() {
   }
 }
 
-function startInternalSimulation() {
+async function startInternalSimulation() {
   if (simulationInterval) clearInterval(simulationInterval);
   simulationInterval = setInterval(runSimulationTick, 1000);
-  db.setSimulationActive(true);
+  await db.setSimulationActive(true);
   logger.info('Background Swarm Simulation started.');
 }
 
-function stopInternalSimulation() {
+async function stopInternalSimulation() {
   if (simulationInterval) {
     clearInterval(simulationInterval);
     simulationInterval = null;
   }
-  db.setSimulationActive(false);
+  await db.setSimulationActive(false);
   logger.info('Background Swarm Simulation stopped.');
 }
 
 if (db.get().simulationActive) {
-  startInternalSimulation();
+  startInternalSimulation().catch(err => logger.error('Failed to start simulation on boot:', err));
 }
 
 // ── Core Chat Completion Logic ───────────────
 async function processChatCompletion({ agentId, deptId, model, messages, _originalModel, _fallbackActive }) {
   const currentDb = db.get();
+  const originalModel = _originalModel || model;
 
   const dept = currentDb.departments.find((d) => d.id === deptId);
   const agent = dept?.agents.find((a) => a.id === agentId);
@@ -216,41 +237,38 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
     };
   }
 
-  const originalModel = _originalModel || model;
+  const agentTokenLimit = computeTokenAllocation(
+    currentDb.totalBudget, dept.allocation, agent.allocation
+  );
 
-  const agentTokenLimit = currentDb.totalBudget * (dept.allocation / 100) * (agent.allocation / 100);
-  const currentUsage = currentDb.usage[agentId]?.total || 0;
+  // Budget check with cascade fallback (reads latest snapshot, no lock needed — recordUsage is atomic)
+  const status = getUsageStatus(currentDb, agentId, agentTokenLimit, model);
 
-  const budgetCost = estimateCost(model, agentTokenLimit, agentTokenLimit);
-  const usageCost = estimateCost(model, currentUsage, currentUsage);
-
-  if (usageCost >= budgetCost) {
-    const idx = FALLBACK_CHAIN.indexOf(model);
-    if (idx >= 0 && idx < FALLBACK_CHAIN.length - 1) {
-      const fallbackModel = FALLBACK_CHAIN[idx + 1];
-      const fallbackBudgetCost = estimateCost(fallbackModel, agentTokenLimit, agentTokenLimit);
-      const fallbackUsageCost = estimateCost(fallbackModel, currentUsage, currentUsage);
-
-      if (fallbackUsageCost < fallbackBudgetCost) {
-        logger.info(`[Fallback] Agent '${agent.name}': ${model} over budget, falling back to ${fallbackModel}`);
-        return processChatCompletion({
-          agentId, deptId, model: fallbackModel, messages,
-          _originalModel: originalModel, _fallbackActive: true
-        });
-      }
-    }
-
+  if (status.blocked) {
     return {
       statusCode: 429,
       error: {
-        message: `Budget Exceeded: Agent '${agent.name}' has used $${usageCost.toFixed(2)} of its $${budgetCost.toFixed(2)} budget.`,
+        message: `Budget Exceeded: Agent '${agent.name}' has used ${status.usage} of ${agentTokenLimit.toFixed(0)} tokens.`,
         type: 'insufficient_budget',
         code: 'budget_exceeded'
       }
     };
   }
 
+  if (status.fallbackTo) {
+    logger.info(`[Fallback] Agent '${agent.name}': token budget exhausted on ${model}, falling back to ${status.fallbackTo}`);
+    // Fallback without re-checking budget — cheaper model reduces dollar cost
+    return processChatCompletion({
+      agentId, deptId, model: status.fallbackTo, messages,
+      _originalModel: originalModel, _fallbackActive: true
+    });
+  }
+
+  // ── Execute request ────────────────
   if (OPENAI_API_KEY) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT);
+
     try {
       const requestBody = { model, messages };
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -259,8 +277,10 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${OPENAI_API_KEY}`
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
 
       const data = await response.json();
 
@@ -270,7 +290,7 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
       }
 
       if (data.usage) {
-        db.recordUsage(agentId, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
+        await db.recordUsage(agentId, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
         logger.info(`[OpenAI] Agent '${agent.name}' consumed ${data.usage.total_tokens} tokens on ${model}.`);
       }
 
@@ -281,6 +301,14 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
 
       return { statusCode: 200, ...data };
     } catch (err) {
+      clearTimeout(timeout);
+      if (err.name === 'AbortError') {
+        logger.error(`[OpenAI Timeout] Request to ${model} timed out after ${OPENAI_TIMEOUT}ms`);
+        return {
+          statusCode: 504,
+          error: { message: 'OpenAI API request timed out.', type: 'api_error', code: 'upstream_timeout' }
+        };
+      }
       logger.error('OpenAI API call failed:', err);
       return {
         statusCode: 502,
@@ -292,9 +320,8 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
   // Mock Fallback
   const promptTokens = Math.floor(Math.random() * 800) + 200;
   const completionTokens = Math.floor(Math.random() * 1200) + 300;
-  const totalTokens = promptTokens + completionTokens;
 
-  db.recordUsage(agentId, promptTokens, completionTokens);
+  await db.recordUsage(agentId, promptTokens, completionTokens);
 
   const responseText = MOCK_RESPONSES[Math.floor(Math.random() * MOCK_RESPONSES.length)];
 
@@ -314,7 +341,7 @@ async function processChatCompletion({ agentId, deptId, model, messages, _origin
     usage: {
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
-      total_tokens: totalTokens
+      total_tokens: promptTokens + completionTokens
     }
   };
 
@@ -408,13 +435,17 @@ app.post('/v1/chat/completions', async (req, res) => {
 });
 
 // 2. Control Plane: Update config
-app.post('/api/config', controlPlaneLimiter, requireControlAuth, (req, res) => {
+app.post('/api/config', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
   try {
-    const updated = db.updateConfig(req.body);
-    db.ensureSwarmKeys();
+    const updated = await db.updateConfig(req.body);
+    await db.ensureSwarmKeys();
     res.status(200).json({ success: true, config: updated });
   } catch (err) {
-    res.status(400).json({ error: { message: err.message, type: 'invalid_request_error', code: 'validation_error' } });
+    if (err.message.match(/^(totalBudget|selectedModel|departments|thresholds)/)) {
+      res.status(400).json({ error: { message: err.message, type: 'invalid_request_error', code: 'validation_error' } });
+    } else {
+      next(err);
+    }
   }
 });
 
@@ -424,20 +455,24 @@ app.get('/api/status', controlPlaneLimiter, (req, res) => {
 });
 
 // 4. Control Plane: Simulation toggle
-app.post('/api/simulation/toggle', controlPlaneLimiter, requireControlAuth, (req, res) => {
+app.post('/api/simulation/toggle', controlPlaneLimiter, requireControlAuth, async (req, res) => {
   const current = db.get().simulationActive;
   if (current) {
-    stopInternalSimulation();
+  stopInternalSimulation().catch(() => {});
   } else {
-    startInternalSimulation();
+    await startInternalSimulation();
   }
   res.status(200).json({ success: true, simulationActive: db.get().simulationActive });
 });
 
 // 5. Control Plane: Reset usage
-app.post('/api/usage/reset', controlPlaneLimiter, requireControlAuth, (req, res) => {
-  const usage = db.resetUsage();
-  res.status(200).json({ success: true, usage });
+app.post('/api/usage/reset', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const usage = await db.resetUsage();
+    res.status(200).json({ success: true, usage });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // 6. Control Plane: Get all swarm keys
@@ -451,12 +486,16 @@ app.get('/api/keys', controlPlaneLimiter, requireControlAuth, (req, res) => {
 });
 
 // 7. Control Plane: Regenerate all swarm keys
-app.post('/api/keys/regenerate', controlPlaneLimiter, requireControlAuth, (req, res) => {
-  const keys = db.regenerateSwarmKeys();
-  const keyList = Object.entries(keys).map(([key, info]) => ({
-    key, agentId: info.agentId, deptId: info.deptId, name: info.name
-  }));
-  res.status(200).json({ success: true, keys: keyList });
+app.post('/api/keys/regenerate', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const keys = await db.regenerateSwarmKeys();
+    const keyList = Object.entries(keys).map(([key, info]) => ({
+      key, agentId: info.agentId, deptId: info.deptId, name: info.name
+    }));
+    res.status(200).json({ success: true, keys: keyList });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── Error handler middleware (must be last) ──

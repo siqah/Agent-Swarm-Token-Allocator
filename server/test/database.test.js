@@ -17,7 +17,6 @@ describe('database.js', () => {
     it('constructor creates an independent copy of DEFAULTS', () => {
       const d = freshDb();
       d.data.totalBudget = 999999;
-      // Other instances should not be affected
       const d2 = freshDb();
       assert.notEqual(d2.data.totalBudget, 999999);
     });
@@ -38,56 +37,71 @@ describe('database.js', () => {
   });
 
   describe('updateConfig validation', () => {
-    it('accepts a valid config update', () => {
-      db.updateConfig({ totalBudget: 5000000 });
+    it('accepts a valid config update', async () => {
+      await db.updateConfig({ totalBudget: 5000000 });
       assert.equal(db.get().totalBudget, 5000000);
     });
 
-    it('throws for negative totalBudget', () => {
-      assert.throws(() => db.updateConfig({ totalBudget: -100 }), /non-negative/);
+    it('throws for negative totalBudget', async () => {
+      await assert.rejects(
+        () => db.updateConfig({ totalBudget: -100 }),
+        /non-negative/
+      );
     });
 
-    it('throws for non-numeric totalBudget', () => {
-      assert.throws(() => db.updateConfig({ totalBudget: 'abc' }), /non-negative/);
+    it('throws for non-numeric totalBudget', async () => {
+      await assert.rejects(
+        () => db.updateConfig({ totalBudget: 'abc' }),
+        /non-negative/
+      );
     });
 
-    it('throws for NaN totalBudget', () => {
-      assert.throws(() => db.updateConfig({ totalBudget: NaN }), /non-negative/);
+    it('throws for NaN totalBudget', async () => {
+      await assert.rejects(
+        () => db.updateConfig({ totalBudget: NaN }),
+        /non-negative/
+      );
     });
 
-    it('throws for empty departments array', () => {
-      assert.throws(() => db.updateConfig({ departments: [] }), /non-empty array/);
+    it('throws for empty departments array', async () => {
+      await assert.rejects(
+        () => db.updateConfig({ departments: [] }),
+        /non-empty array/
+      );
     });
 
-    it('throws for non-array departments', () => {
-      assert.throws(() => db.updateConfig({ departments: null }), /non-empty array/);
+    it('throws for non-array departments', async () => {
+      await assert.rejects(
+        () => db.updateConfig({ departments: null }),
+        /non-empty array/
+      );
     });
   });
 
   describe('recordUsage', () => {
-    it('accumulates token counts', () => {
-      const result = db.recordUsage('test-agent', 100, 200);
+    it('accumulates token counts', async () => {
+      const result = await db.recordUsage('test-agent', 100, 200);
       assert.equal(result.input, 100);
       assert.equal(result.output, 200);
       assert.equal(result.total, 300);
     });
 
-    it('adds to existing counts', () => {
-      db.recordUsage('test-agent', 50, 50);
-      const result = db.recordUsage('test-agent', 10, 20);
+    it('adds to existing counts', async () => {
+      await db.recordUsage('test-agent', 50, 50);
+      const result = await db.recordUsage('test-agent', 10, 20);
       assert.equal(result.total, 430); // 300 + 100 + 30
     });
   });
 
   describe('regenerateSwarmKeys', () => {
-    it('returns an object with key entries', () => {
-      const keys = db.regenerateSwarmKeys();
+    it('returns an object with key entries', async () => {
+      const keys = await db.regenerateSwarmKeys();
       assert.ok(typeof keys === 'object');
       assert.ok(Object.keys(keys).length > 0);
     });
 
-    it('keys match the swarm-{id} pattern', () => {
-      const keys = db.regenerateSwarmKeys();
+    it('keys match the swarm-{id} pattern', async () => {
+      const keys = await db.regenerateSwarmKeys();
       for (const [key, info] of Object.entries(keys)) {
         assert.ok(key.startsWith('swarm-'), `Key ${key} should start with swarm-`);
         assert.ok(key.includes(info.agentId), `Key ${key} should contain agent ID ${info.agentId}`);
@@ -96,10 +110,10 @@ describe('database.js', () => {
   });
 
   describe('simulation state', () => {
-    it('setSimulationActive toggles correctly', () => {
-      db.setSimulationActive(true);
+    it('setSimulationActive toggles correctly', async () => {
+      await db.setSimulationActive(true);
       assert.equal(db.get().simulationActive, true);
-      db.setSimulationActive(false);
+      await db.setSimulationActive(false);
       assert.equal(db.get().simulationActive, false);
     });
   });

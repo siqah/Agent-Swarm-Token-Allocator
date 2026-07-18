@@ -31,3 +31,4 @@ dist-ssr
 # Local DB stores
 db.json
 server/db.json
+server/db.json.tmp

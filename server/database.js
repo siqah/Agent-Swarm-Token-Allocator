@@ -9,10 +9,46 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 const DB_FILE = path.join(__dirname, 'db.json');
+const DB_TEMP_FILE = DB_FILE + '.tmp';
 const { Pool } = pg;
 
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
+}
+
+class Mutex {
+  constructor() {
+    this._locked = false;
+    this._queue = [];
+  }
+
+  acquire() {
+    return new Promise(resolve => {
+      if (!this._locked) {
+        this._locked = true;
+        resolve();
+      } else {
+        this._queue.push(resolve);
+      }
+    });
+  }
+
+  release() {
+    if (this._queue.length > 0) {
+      this._queue.shift()();
+    } else {
+      this._locked = false;
+    }
+  }
+
+  async withLock(fn) {
+    await this.acquire();
+    try {
+      return await fn();
+    } finally {
+      this.release();
+    }
+  }
 }
 
 const DEFAULTS = {
@@ -80,9 +116,18 @@ class Database {
     this.data = deepClone(DEFAULTS);
     this.isPostgres = false;
     this.pool = null;
+    this._mutex = new Mutex();
     if (!options.skipInit) {
       this.init();
     }
+  }
+
+  withLock(fn) {
+    return this._mutex.withLock(fn);
+  }
+
+  getTokenLimit(dept, agent) {
+    return this.data.totalBudget * (dept.allocation / 100) * (agent.allocation / 100);
   }
 
   async init() {
@@ -90,7 +135,7 @@ class Database {
 
     if (!connectionString) {
       console.log('No DATABASE_URL found. Running with local JSON database.');
-      this.loadJson();
+      await this.loadJson();
       return;
     }
 
@@ -108,11 +153,11 @@ class Database {
 
       await this.initSchema();
       await this.hydrateFromPostgres();
-      this.ensureSwarmKeys();
+      await this.ensureSwarmKeys();
     } catch (err) {
       console.warn('PostgreSQL connection failed. Falling back to local JSON database.');
       this.isPostgres = false;
-      this.loadJson();
+      await this.loadJson();
     }
   }
 
@@ -191,7 +236,7 @@ class Database {
     }
   }
 
-  loadJson() {
+  async loadJson() {
     try {
       if (fs.existsSync(DB_FILE)) {
         const fileContent = fs.readFileSync(DB_FILE, 'utf8');
@@ -207,12 +252,14 @@ class Database {
     if (!this.data.swarmKeys) {
       this.data.swarmKeys = {};
     }
-    this.ensureSwarmKeys();
+    await this.ensureSwarmKeys();
   }
 
   saveJson() {
     try {
-      fs.writeFileSync(DB_FILE, JSON.stringify(this.data, null, 2), 'utf8');
+      const content = JSON.stringify(this.data, null, 2);
+      fs.writeFileSync(DB_TEMP_FILE, content, 'utf8');
+      fs.renameSync(DB_TEMP_FILE, DB_FILE);
     } catch (err) {
       console.error('Error saving JSON database:', err);
     }
@@ -222,90 +269,104 @@ class Database {
     return deepClone(this.data);
   }
 
-  updateConfig(config) {
-    if (config.totalBudget !== undefined) {
-      if (typeof config.totalBudget !== 'number' || config.totalBudget < 0 || !Number.isFinite(config.totalBudget)) {
-        throw new Error('totalBudget must be a non-negative number');
+  async updateConfig(config) {
+    return this._mutex.withLock(async () => {
+      if (config.totalBudget !== undefined) {
+        if (typeof config.totalBudget !== 'number' || config.totalBudget < 0 || !Number.isFinite(config.totalBudget)) {
+          throw new Error('totalBudget must be a non-negative number');
+        }
+        this.data.totalBudget = config.totalBudget;
       }
-      this.data.totalBudget = config.totalBudget;
-    }
-    if (config.selectedModel !== undefined) {
-      if (typeof config.selectedModel !== 'string' || !config.selectedModel) {
-        throw new Error('selectedModel must be a non-empty string');
+      if (config.selectedModel !== undefined) {
+        if (typeof config.selectedModel !== 'string' || !config.selectedModel) {
+          throw new Error('selectedModel must be a non-empty string');
+        }
+        this.data.selectedModel = config.selectedModel;
       }
-      this.data.selectedModel = config.selectedModel;
-    }
-    if (config.departments !== undefined) {
-      if (!Array.isArray(config.departments) || config.departments.length === 0) {
-        throw new Error('departments must be a non-empty array');
+      if (config.departments !== undefined) {
+        if (!Array.isArray(config.departments) || config.departments.length === 0) {
+          throw new Error('departments must be a non-empty array');
+        }
+        this.data.departments = deepClone(config.departments);
       }
-      this.data.departments = deepClone(config.departments);
-    }
-    if (config.thresholds !== undefined) {
-      if (typeof config.thresholds !== 'object' || config.thresholds === null) {
-        throw new Error('thresholds must be an object');
+      if (config.thresholds !== undefined) {
+        if (typeof config.thresholds !== 'object' || config.thresholds === null) {
+          throw new Error('thresholds must be an object');
+        }
+        this.data.thresholds = config.thresholds;
       }
-      this.data.thresholds = config.thresholds;
-    }
 
-    if (this.isPostgres) {
-      this.saveConfigToPostgres();
-    } else {
-      this.saveJson();
-    }
-    return deepClone(this.data);
-  }
-
-  recordUsage(agentId, promptTokens, completionTokens) {
-    if (!this.data.usage[agentId]) {
-      this.data.usage[agentId] = { input: 0, output: 0, total: 0 };
-    }
-
-    this.data.usage[agentId].input += promptTokens;
-    this.data.usage[agentId].output += completionTokens;
-    this.data.usage[agentId].total += (promptTokens + completionTokens);
-
-    if (this.isPostgres) {
-      const total = promptTokens + completionTokens;
-      this.pool.query(`
-        INSERT INTO agent_usage (agent_id, input_tokens, output_tokens, total_tokens, updated_at)
-        VALUES ($1, $2, $3, $4, NOW())
-        ON CONFLICT (agent_id) DO UPDATE SET
-          input_tokens = agent_usage.input_tokens + $2,
-          output_tokens = agent_usage.output_tokens + $3,
-          total_tokens = agent_usage.total_tokens + $4,
-          updated_at = NOW()
-      `, [agentId, promptTokens, completionTokens, total])
-      .catch(err => console.error('Failed to log usage in SQL agent_usage table:', err));
-    } else {
-      this.saveJson();
-    }
-
-    return { ...this.data.usage[agentId] };
-  }
-
-  setSimulationActive(active) {
-    this.data.simulationActive = !!active;
-    if (this.isPostgres) {
-      this.saveConfigToPostgres();
-    } else {
-      this.saveJson();
-    }
-    return this.data.simulationActive;
-  }
-
-  resetUsage() {
-    Object.keys(this.data.usage).forEach((key) => {
-      this.data.usage[key] = { input: 0, output: 0, total: 0 };
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return deepClone(this.data);
     });
+  }
 
-    if (this.isPostgres) {
-      this.pool.query("UPDATE agent_usage SET input_tokens = 0, output_tokens = 0, total_tokens = 0")
-        .catch(err => console.error('Failed to clear SQL agent_usage counters:', err));
-    } else {
-      this.saveJson();
-    }
-    return deepClone(this.data.usage);
+  async recordUsage(agentId, promptTokens, completionTokens) {
+    return this._mutex.withLock(async () => {
+      if (!this.data.usage[agentId]) {
+        this.data.usage[agentId] = { input: 0, output: 0, total: 0 };
+      }
+
+      this.data.usage[agentId].input += promptTokens;
+      this.data.usage[agentId].output += completionTokens;
+      this.data.usage[agentId].total += (promptTokens + completionTokens);
+
+      if (this.isPostgres) {
+        const total = promptTokens + completionTokens;
+        try {
+          await this.pool.query(`
+            INSERT INTO agent_usage (agent_id, input_tokens, output_tokens, total_tokens, updated_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (agent_id) DO UPDATE SET
+              input_tokens = agent_usage.input_tokens + $2,
+              output_tokens = agent_usage.output_tokens + $3,
+              total_tokens = agent_usage.total_tokens + $4,
+              updated_at = NOW()
+          `, [agentId, promptTokens, completionTokens, total]);
+        } catch (err) {
+          console.error('Failed to log usage in SQL agent_usage table:', err);
+        }
+      } else {
+        this.saveJson();
+      }
+
+      return { ...this.data.usage[agentId] };
+    });
+  }
+
+  async setSimulationActive(active) {
+    return this._mutex.withLock(async () => {
+      this.data.simulationActive = !!active;
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return this.data.simulationActive;
+    });
+  }
+
+  async resetUsage() {
+    return this._mutex.withLock(async () => {
+      Object.keys(this.data.usage).forEach((key) => {
+        this.data.usage[key] = { input: 0, output: 0, total: 0 };
+      });
+
+      if (this.isPostgres) {
+        try {
+          await this.pool.query("UPDATE agent_usage SET input_tokens = 0, output_tokens = 0, total_tokens = 0");
+        } catch (err) {
+          console.error('Failed to clear SQL agent_usage counters:', err);
+        }
+      } else {
+        this.saveJson();
+      }
+      return deepClone(this.data.usage);
+    });
   }
 
   generateSwarmKey(agentId, _agentName) {
@@ -313,52 +374,56 @@ class Database {
     return `swarm-${agentId}-${suffix}`;
   }
 
-  ensureSwarmKeys() {
-    let changed = false;
-    this.data.departments.forEach((dept) => {
-      dept.agents.forEach((agent) => {
-        if (!agent.swarmKey) {
-          agent.swarmKey = this.generateSwarmKey(agent.id, agent.name);
-          changed = true;
-        }
-        this.data.swarmKeys[agent.swarmKey] = {
-          agentId: agent.id,
-          deptId: dept.id,
-          name: agent.name
-        };
+  async ensureSwarmKeys() {
+    return this._mutex.withLock(async () => {
+      let changed = false;
+      this.data.departments.forEach((dept) => {
+        dept.agents.forEach((agent) => {
+          if (!agent.swarmKey) {
+            agent.swarmKey = this.generateSwarmKey(agent.id, agent.name);
+            changed = true;
+          }
+          this.data.swarmKeys[agent.swarmKey] = {
+            agentId: agent.id,
+            deptId: dept.id,
+            name: agent.name
+          };
+        });
       });
-    });
-    if (changed) {
-      if (this.isPostgres) {
-        this.saveConfigToPostgres();
-      } else {
-        this.saveJson();
+      if (changed) {
+        if (this.isPostgres) {
+          await this.saveConfigToPostgres();
+        } else {
+          this.saveJson();
+        }
       }
-    }
+    });
   }
 
   getAgentBySwarmKey(key) {
     return this.data.swarmKeys[key] || null;
   }
 
-  regenerateSwarmKeys() {
-    this.data.swarmKeys = {};
-    this.data.departments.forEach((dept) => {
-      dept.agents.forEach((agent) => {
-        agent.swarmKey = this.generateSwarmKey(agent.id, agent.name);
-        this.data.swarmKeys[agent.swarmKey] = {
-          agentId: agent.id,
-          deptId: dept.id,
-          name: agent.name
-        };
+  async regenerateSwarmKeys() {
+    return this._mutex.withLock(async () => {
+      this.data.swarmKeys = {};
+      this.data.departments.forEach((dept) => {
+        dept.agents.forEach((agent) => {
+          agent.swarmKey = this.generateSwarmKey(agent.id, agent.name);
+          this.data.swarmKeys[agent.swarmKey] = {
+            agentId: agent.id,
+            deptId: dept.id,
+            name: agent.name
+          };
+        });
       });
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return deepClone(this.data.swarmKeys);
     });
-    if (this.isPostgres) {
-      this.saveConfigToPostgres();
-    } else {
-      this.saveJson();
-    }
-    return deepClone(this.data.swarmKeys);
   }
 }
 
