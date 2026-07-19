@@ -1,10 +1,11 @@
 import fs from 'fs';
+import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
 import dotenv from 'dotenv';
 import { runMigrations } from './migrate.js';
-import { logger } from './logger.js';
+import { logger } from './lib/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,7 +112,8 @@ const DEFAULTS = {
   },
   simulationActive: false,
   swarmKeys: {},
-  providerKeys: {}
+  providerKeys: {},
+  users: [],
 };
 
 class Database {
@@ -217,6 +219,7 @@ class Database {
         simulationActive: this.data.simulationActive,
         swarmKeys: this.data.swarmKeys,
         providerKeys: this.data.providerKeys || {},
+        users: this.data.users || [],
       };
       await this.pool.query(
         "INSERT INTO config (key, value) VALUES ('main', $1) ON CONFLICT (key) DO UPDATE SET value = $1",
@@ -548,7 +551,6 @@ class Database {
 
       this.data.swarmKeys[newKey] = { ...info };
 
-      // Update the agent's swarmKey field
       this.data.departments.forEach((dept) => {
         dept.agents.forEach((agent) => {
           if (agent.swarmKey === key) {
@@ -564,6 +566,42 @@ class Database {
       }
       return { key: newKey, ...info };
     });
+  }
+
+  // ── User management ──────────────────────────
+  findUserByUsername(username) {
+    return this.data.users.find((u) => u.username === username) || null;
+  }
+
+  findUserById(userId) {
+    return this.data.users.find((u) => u.id === userId) || null;
+  }
+
+  async createUser(username, passwordHash, department) {
+    return this._mutex.withLock(async () => {
+      if (this.data.users.some((u) => u.username === username)) {
+        return null;
+      }
+      const id = crypto.randomUUID();
+      const user = {
+        id,
+        username,
+        passwordHash,
+        department: department || null,
+        createdAt: new Date().toISOString(),
+      };
+      this.data.users.push(user);
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return { id, username, department: user.department, createdAt: user.createdAt };
+    });
+  }
+
+  async listUsers() {
+    return this.data.users.map(({ passwordHash, ...rest }) => rest);
   }
 }
 

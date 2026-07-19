@@ -1,4 +1,4 @@
-import { logger } from '../logger.js';
+import { logger } from '../lib/logger.js';
 
 const BASE = 'https://api.groq.com/openai/v1';
 

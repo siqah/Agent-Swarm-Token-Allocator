@@ -4,17 +4,19 @@ import helmet from 'helmet';
 import compression from 'compression';
 import crypto from 'crypto';
 import { db } from './database.js';
-import { logger } from './logger.js';
-import { validate, chatCompletionSchema, configUpdateSchema } from './validate.js';
-import { apiLimiter, controlPlaneLimiter } from './rateLimiter.js';
+import { logger } from './lib/logger.js';
+import { validate, chatCompletionSchema, configUpdateSchema } from './lib/validate.js';
+import { apiLimiter, controlPlaneLimiter } from './lib/rateLimiter.js';
 import {
   trackRequest, metricsEndpoint, incrementTokens,
   incrementBudgetBlocked, incrementFallbacks, incrementUpstreamErrors,
   incrementSimulationTicks,
-} from './metrics.js';
-import { checkCache, setCache, clearCache, getCacheStats } from './cache.js';
-import { recordRequest, getLogs, clearLogs } from './requestLog.js';
+} from './lib/metrics.js';
+import { checkCache, setCache, clearCache, getCacheStats } from './lib/cache.js';
+import { recordRequest, getLogs, clearLogs } from './lib/requestLog.js';
 import { syncProviderKeys, getProviderForModel, getAvailableProviders, getFallbackChain, selectKey } from './providers/index.js';
+import { requireUserAuth, hashPassword, verifyPassword, createSession, destroySession, getSession } from './lib/auth.js';
+import { classifyDepartment } from './lib/classifier.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
@@ -469,6 +471,93 @@ app.get('/api/init', (req, res) => {
   res.status(200).json({ token: CONTROL_PLANE_TOKEN, ...data });
 });
 
+// 0d. Auth endpoints
+app.post('/api/register', async (req, res, next) => {
+  try {
+    const { username, password, department } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({
+        error: { message: 'username and password are required.', type: 'invalid_request_error', code: 'missing_fields' }
+      });
+    }
+    if (typeof username !== 'string' || username.length < 2) {
+      return res.status(400).json({
+        error: { message: 'username must be a string with at least 2 characters.', type: 'invalid_request_error', code: 'validation_error' }
+      });
+    }
+    if (typeof password !== 'string' || password.length < 6) {
+      return res.status(400).json({
+        error: { message: 'password must be at least 6 characters.', type: 'invalid_request_error', code: 'validation_error' }
+      });
+    }
+    const existing = db.findUserByUsername(username);
+    if (existing) {
+      return res.status(409).json({
+        error: { message: 'Username already taken.', type: 'invalid_request_error', code: 'conflict' }
+      });
+    }
+    const passwordHash = await hashPassword(password);
+    const user = await db.createUser(username, passwordHash, department || null);
+    if (!user) {
+      return res.status(409).json({
+        error: { message: 'Username already taken.', type: 'invalid_request_error', code: 'conflict' }
+      });
+    }
+    const token = createSession(user.id);
+    res.status(201).json({ success: true, user, token });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/login', async (req, res, next) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({
+        error: { message: 'username and password are required.', type: 'invalid_request_error', code: 'missing_fields' }
+      });
+    }
+    const user = db.findUserByUsername(username);
+    if (!user) {
+      return res.status(401).json({
+        error: { message: 'Invalid username or password.', type: 'authentication_error', code: 'invalid_credentials' }
+      });
+    }
+    const valid = await verifyPassword(password, user.passwordHash);
+    if (!valid) {
+      return res.status(401).json({
+        error: { message: 'Invalid username or password.', type: 'authentication_error', code: 'invalid_credentials' }
+      });
+    }
+    const token = createSession(user.id);
+    res.status(200).json({
+      success: true,
+      user: { id: user.id, username: user.username, department: user.department },
+      token
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/logout', requireUserAuth, (req, res) => {
+  const auth = req.headers['authorization'];
+  const token = auth && auth.startsWith('Bearer ') ? auth.substring(7) : null;
+  if (token) destroySession(token);
+  res.status(200).json({ success: true });
+});
+
+app.get('/api/me', requireUserAuth, (req, res) => {
+  const user = db.findUserById(req.userId);
+  if (!user) {
+    return res.status(404).json({
+      error: { message: 'User not found.', type: 'authentication_error', code: 'not_found' }
+    });
+  }
+  res.status(200).json({ user: { id: user.id, username: user.username, department: user.department, createdAt: user.createdAt } });
+});
+
 // 1. LLM Chat completions — OpenAI SDK compatible
 app.post('/v1/chat/completions', validate(chatCompletionSchema), async (req, res) => {
   const startTime = Date.now();
@@ -580,6 +669,100 @@ app.post('/v1/chat/completions', validate(chatCompletionSchema), async (req, res
   return res.status(200).json(result);
 });
 
+// 1b. Task routing — classify prompt and route to best agent
+app.post('/v1/swarm/task', async (req, res) => {
+  const startTime = Date.now();
+  const authHeader = req.headers['authorization'];
+  let swarmKey = null;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    swarmKey = authHeader.substring(7).trim();
+  } else if (authHeader) {
+    swarmKey = authHeader.trim();
+  }
+
+  if (!swarmKey) {
+    return res.status(401).json({
+      error: { message: 'Missing Virtual Swarm Key.', type: 'authentication_error', code: 'missing_api_key' }
+    });
+  }
+
+  const agentInfo = db.getAgentBySwarmKey(swarmKey);
+  if (!agentInfo) {
+    return res.status(401).json({
+      error: { message: 'Invalid Virtual Swarm Key.', type: 'authentication_error', code: 'invalid_api_key' }
+    });
+  }
+
+  const { prompt, model, messages, stream, temperature, max_tokens } = req.body;
+  if (!prompt || typeof prompt !== 'string') {
+    return res.status(400).json({
+      error: { message: 'prompt is required and must be a string.', type: 'invalid_request_error', code: 'missing_fields' }
+    });
+  }
+
+  const data = db.get();
+  const classification = classifyDepartment(data.departments, prompt);
+
+  if (!classification || !classification.agentId) {
+    return res.status(404).json({
+      error: { message: 'No suitable agent found for the given prompt.', type: 'invalid_request_error', code: 'no_match' }
+    });
+  }
+
+  const targetDept = data.departments.find((d) => d.id === classification.deptId);
+  const targetAgent = targetDept?.agents.find((a) => a.id === classification.agentId);
+  if (!targetAgent) {
+    return res.status(404).json({
+      error: { message: 'Classified agent not found.', type: 'invalid_request_error', code: 'not_found' }
+    });
+  }
+
+  // Use the classified agent's swarm key for budget override
+  const targetSwarmKeyInfo = Object.entries(data.swarmKeys).find(
+    ([, v]) => v.agentId === classification.agentId && v.deptId === classification.deptId
+  )?.[1];
+  const budgetOverride = targetSwarmKeyInfo?.budgetOverride || null;
+
+  logger.info(`[TaskRouter] "${prompt.substring(0, 60)}..." → ${targetAgent.name} (${targetDept.name}) [score=${classification.score?.toFixed(3)}]`);
+
+  const result = await processChatCompletion({
+    agentId: targetAgent.id,
+    deptId: targetDept.id,
+    model: model || data.selectedModel,
+    messages: messages || [{ role: 'user', content: prompt }],
+    temperature,
+    max_tokens,
+    stream: !!stream,
+    budgetOverride,
+    _apiKey: selectKey(getProviderForModel(model || data.selectedModel)?.name),
+    _providerName: getProviderForModel(model || data.selectedModel)?.name || 'mock',
+  });
+
+  if (result.error) {
+    return res.status(result.statusCode || 400).json({
+      error: result.error,
+      _classification: { agentId: classification.agentId, agentName: targetAgent.name, deptId: classification.deptId, deptName: targetDept.name, score: classification.score }
+    });
+  }
+
+  if (result.stream) {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+      'X-Routed-Agent': targetAgent.name,
+      'X-Routed-Department': targetDept.name,
+    });
+    return await pipeStreamToResponse(result.stream, res, result.agentId, result.agentName, result.originalModel, result.fallbackActive);
+  }
+
+  res.set('X-Routed-Agent', targetAgent.name);
+  res.set('X-Routed-Department', targetDept.name);
+  return res.status(200).json(result);
+});
+
 // 2. Control Plane: Update config
 app.post('/api/config', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
   try {
@@ -646,14 +829,36 @@ app.post('/api/usage/reset', controlPlaneLimiter, requireControlAuth, async (req
 
 // 6. Control Plane: Virtual Swarm Key CRUD
 
-// 6a. Get all swarm keys
+// 6a. Get swarm keys (optionally filtered by department)
 app.get('/api/keys', controlPlaneLimiter, requireControlAuth, (req, res) => {
   const data = db.get();
   const keys = data.swarmKeys || {};
-  const keyList = Object.entries(keys).map(([key, info]) => ({
+  let keyList = Object.entries(keys).map(([key, info]) => ({
     key, agentId: info.agentId, deptId: info.deptId, name: info.name
   }));
+  const { department } = req.query;
+  if (department) {
+    keyList = keyList.filter((k) => k.deptId === department);
+  }
   res.status(200).json({ keys: keyList });
+});
+
+// 6aa. User-scoped keys — auto-filtered by the authenticated user's department
+app.get('/api/user/keys', controlPlaneLimiter, requireUserAuth, (req, res) => {
+  const user = db.findUserById(req.userId);
+  if (!user) {
+    return res.status(404).json({
+      error: { message: 'User not found.', type: 'authentication_error', code: 'not_found' }
+    });
+  }
+  const data = db.get();
+  const keys = data.swarmKeys || {};
+  const keyList = Object.entries(keys)
+    .filter(([, info]) => !user.department || info.deptId === user.department)
+    .map(([key, info]) => ({
+      key, agentId: info.agentId, deptId: info.deptId, name: info.name
+    }));
+  res.status(200).json({ keys: keyList, department: user.department });
 });
 
 // 6b. Create a new swarm key for a specific agent

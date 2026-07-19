@@ -1,4 +1,4 @@
-import { logger } from '../logger.js';
+import { logger } from '../lib/logger.js';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
 

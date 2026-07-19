@@ -16,7 +16,7 @@ FROM nginx:1.27-alpine
 RUN rm -rf /usr/share/nginx/html/* && \
     rm -f /etc/nginx/conf.d/default.conf
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY infra/nginx/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 EXPOSE 80
