@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import crypto from 'crypto';
+import * as Sentry from '@sentry/node';
 import { db } from './database.js';
 import { logger } from './lib/logger.js';
 import { validate, chatCompletionSchema, configUpdateSchema } from './lib/validate.js';
@@ -17,10 +18,21 @@ import { recordRequest, getLogs, clearLogs } from './lib/requestLog.js';
 import { syncProviderKeys, getProviderForModel, getAvailableProviders, getFallbackChain, selectKey } from './providers/index.js';
 import { requireUserAuth, hashPassword, verifyPassword, createSession, destroySession, getSession } from './lib/auth.js';
 import { classifyDepartment } from './lib/classifier.js';
+import { sendAlert } from './lib/webhook.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// ── Sentry ────────────────────────────────────
+const SENTRY_DSN = process.env.SENTRY_DSN;
+if (SENTRY_DSN) {
+  Sentry.init({ dsn: SENTRY_DSN, environment: NODE_ENV });
+  app.use(Sentry.Handlers.requestHandler());
+  logger.info('Sentry error monitoring enabled.');
+} else {
+  logger.info('Sentry disabled. Set SENTRY_DSN to enable.');
+}
 
 // ── Environment validation ─────────────────
 const REQUIRED_ENV_VARS = [];
@@ -287,6 +299,16 @@ async function processChatCompletion({ agentId, deptId, model, messages, tempera
 
   if (status.blocked) {
     incrementBudgetBlocked();
+    sendAlert('budget_exhausted', {
+      agentId,
+      agentName: agent.name,
+      deptId,
+      deptName: dept.name,
+      usage: status.usage,
+      limit: agentTokenLimit,
+      model,
+      gatewayUrl: `http://localhost:${PORT}`,
+    });
     return {
       statusCode: 429,
       error: {
@@ -471,8 +493,8 @@ app.get('/api/init', (req, res) => {
   res.status(200).json({ token: CONTROL_PLANE_TOKEN, ...data });
 });
 
-// 0d. Auth endpoints
-app.post('/api/register', async (req, res, next) => {
+// 0d. Auth endpoints (rate limited to prevent brute force)
+app.post('/api/register', apiLimiter, async (req, res, next) => {
   try {
     const { username, password, department } = req.body;
     if (!username || !password) {
@@ -510,7 +532,7 @@ app.post('/api/register', async (req, res, next) => {
   }
 });
 
-app.post('/api/login', async (req, res, next) => {
+app.post('/api/login', apiLimiter, async (req, res, next) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -541,10 +563,10 @@ app.post('/api/login', async (req, res, next) => {
   }
 });
 
-app.post('/api/logout', requireUserAuth, (req, res) => {
+app.post('/api/logout', requireUserAuth, async (req, res) => {
   const auth = req.headers['authorization'];
   const token = auth && auth.startsWith('Bearer ') ? auth.substring(7) : null;
-  if (token) destroySession(token);
+  if (token) await destroySession(token);
   res.status(200).json({ success: true });
 });
 
@@ -1035,6 +1057,11 @@ app.delete('/api/logs', controlPlaneLimiter, requireControlAuth, (req, res) => {
   clearLogs();
   res.status(200).json({ success: true, message: 'Logs cleared.' });
 });
+
+// ── Sentry error handler (before custom handler) ──
+if (SENTRY_DSN) {
+  app.use(Sentry.Handlers.errorHandler());
+}
 
 // ── Error handler middleware (must be last) ──
 app.use(errorHandler);

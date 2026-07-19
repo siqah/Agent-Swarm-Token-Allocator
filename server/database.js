@@ -204,6 +204,16 @@ class Database {
           total: parseInt(row.total_tokens, 10) || 0
         };
       });
+
+      // Load users from users table
+      const usersRes = await this.pool.query("SELECT * FROM users");
+      this.data.users = usersRes.rows.map((r) => ({
+        id: r.id,
+        username: r.username,
+        passwordHash: r.password_hash,
+        department: r.department,
+        createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      }));
     } catch (err) {
       logger.error('Error hydrating state from PostgreSQL:', err);
     }
@@ -592,6 +602,14 @@ class Database {
       };
       this.data.users.push(user);
       if (this.isPostgres) {
+        try {
+          await this.pool.query(
+            'INSERT INTO users (id, username, password_hash, department, created_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (username) DO NOTHING',
+            [id, username, passwordHash, user.department, user.createdAt]
+          );
+        } catch (err) {
+          logger.error('Failed to persist user to PostgreSQL:', err);
+        }
         await this.saveConfigToPostgres();
       } else {
         this.saveJson();
