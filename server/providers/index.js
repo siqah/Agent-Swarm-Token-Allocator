@@ -2,6 +2,7 @@ import * as openai from './openai.js';
 import * as anthropic from './anthropic.js';
 import * as google from './google.js';
 import * as groq from './groq.js';
+import { decrypt } from '../lib/encrypt.js';
 
 const PROVIDERS = [openai, anthropic, google, groq];
 
@@ -32,8 +33,14 @@ export function syncProviderKeys(db) {
   global.__providerKeys = {};
   for (const provider of PROVIDERS) {
     const name = provider.name;
-    // DB keys first, then env var fallback
-    const dbKeys = stored[name] || [];
+    // DB keys are stored encrypted — decrypt on load
+    const dbKeys = (stored[name] || []).map((k) => {
+      try {
+        return decrypt(k);
+      } catch {
+        return k; // fallback to raw if not encrypted
+      }
+    });
     const envKey = process.env[`${name.toUpperCase()}_API_KEY`];
     const allKeys = [...dbKeys];
     if (envKey && !allKeys.includes(envKey)) allKeys.push(envKey);

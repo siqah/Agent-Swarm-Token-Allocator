@@ -7,6 +7,8 @@ const KEY_LENGTH = 64;
 const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 };
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
+const sessions = new Map();
+
 export function hashPassword(password) {
   return new Promise((resolve, reject) => {
     const salt = crypto.randomBytes(SALT_LENGTH).toString('hex');
@@ -29,13 +31,16 @@ export function verifyPassword(password, stored) {
 
 export async function createSession(userId) {
   const token = crypto.randomUUID();
-  const expiresAt = Date.now() + SESSION_TTL_MS;
 
+  // Always store in memory
+  sessions.set(token, { userId, expiresAt: Date.now() + SESSION_TTL_MS });
+
+  // Also persist to PostgreSQL if available
   if (db.isPostgres && db.pool) {
     try {
       await db.pool.query(
         'INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-        [token, userId, expiresAt]
+        [token, userId, Date.now() + SESSION_TTL_MS]
       );
     } catch (err) {
       logger.warn('Failed to persist session to PostgreSQL:', err.message);
@@ -46,6 +51,17 @@ export async function createSession(userId) {
 }
 
 export async function getSession(token) {
+  // Check in-memory first
+  const mem = sessions.get(token);
+  if (mem) {
+    if (Date.now() > mem.expiresAt) {
+      sessions.delete(token);
+      return null;
+    }
+    return { userId: mem.userId };
+  }
+
+  // Fall back to PostgreSQL
   if (db.isPostgres && db.pool) {
     try {
       const res = await db.pool.query(
@@ -53,6 +69,8 @@ export async function getSession(token) {
         [token, Date.now()]
       );
       if (res.rows.length > 0) {
+        // Cache in memory
+        sessions.set(token, { userId: res.rows[0].user_id, expiresAt: Number(res.rows[0].expires_at) });
         return { userId: res.rows[0].user_id };
       }
     } catch (err) {
@@ -64,6 +82,7 @@ export async function getSession(token) {
 }
 
 export async function destroySession(token) {
+  sessions.delete(token);
   if (db.isPostgres && db.pool) {
     try {
       await db.pool.query('DELETE FROM sessions WHERE token = $1', [token]);
@@ -94,3 +113,11 @@ export async function requireUserAuth(req, res, next) {
     next(err);
   }
 }
+
+// Periodic cleanup of expired in-memory sessions
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, session] of sessions) {
+    if (now > session.expiresAt) sessions.delete(token);
+  }
+}, 60_000).unref();

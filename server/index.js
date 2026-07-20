@@ -85,7 +85,7 @@ app.use(trackRequest);
 app.use('/v1/', apiLimiter);
 
 const CONTROL_PLANE_TOKEN = process.env.CONTROL_PLANE_TOKEN ||
-  `ctrl-${Math.random().toString(36).substring(2, 10)}`;
+  crypto.randomUUID();
 
 function requireControlAuth(req, res, next) {
   const auth = req.headers['authorization'];
@@ -487,9 +487,9 @@ app.get('/api/health', (req, res) => {
 // 0b. Prometheus metrics endpoint (no auth, no rate limit)
 app.get('/api/metrics', metricsEndpoint);
 
-// 0c. Initialization — returns control plane token + status (no auth)
-app.get('/api/init', (req, res) => {
-  const data = db.get();
+// 0c. Initialization — returns status + control plane token (rate limited)
+app.get('/api/init', controlPlaneLimiter, (req, res) => {
+  const data = sanitizePublicData(db.get());
   res.status(200).json({ token: CONTROL_PLANE_TOKEN, ...data });
 });
 
@@ -801,6 +801,22 @@ app.post('/api/config', controlPlaneLimiter, requireControlAuth, async (req, res
 });
 
 // 3a. Control Plane: SSE stream (no rate limit — single persistent connection)
+function sanitizePublicData(data) {
+  const sanitized = { ...data };
+  delete sanitized.providerKeys;
+  if (sanitized.swarmKeys) {
+    const masked = {};
+    for (const [key, info] of Object.entries(sanitized.swarmKeys)) {
+      const maskedKey = key.length > 12
+        ? key.slice(0, 6) + '••••' + key.slice(-4)
+        : '••••••••';
+      masked[maskedKey] = info;
+    }
+    sanitized.swarmKeys = masked;
+  }
+  return sanitized;
+}
+
 app.get('/api/stream', (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -810,7 +826,7 @@ app.get('/api/stream', (req, res) => {
   });
 
   const sendState = () => {
-    const data = db.get();
+    const data = sanitizePublicData(db.get());
     res.write(`data: ${JSON.stringify({ ...data, availableProviders: getAvailableProviders() })}\n\n`);
   };
 
@@ -825,7 +841,7 @@ app.get('/api/stream', (req, res) => {
 
 // 3b. Control Plane: Get status (used as fallback, rate limited)
 app.get('/api/status', controlPlaneLimiter, (req, res) => {
-  res.status(200).json(db.get());
+  res.status(200).json(sanitizePublicData(db.get()));
 });
 
 // 4. Control Plane: Simulation toggle
@@ -1130,6 +1146,9 @@ syncProviderKeys(db);
 if (!process.env.TEST_MODE) {
   server = app.listen(PORT, () => {
     logger.info(`LLM Gateway Server running at http://localhost:${PORT} [${NODE_ENV}]`);
+    if (!process.env.CONTROL_PLANE_TOKEN) {
+      logger.info(`Control plane token (set CONTROL_PLANE_TOKEN env var to persist): ${CONTROL_PLANE_TOKEN}`);
+    }
   });
 
   server.on('connection', (conn) => {

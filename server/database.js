@@ -6,6 +6,7 @@ import pg from 'pg';
 import dotenv from 'dotenv';
 import { runMigrations } from './migrate.js';
 import { logger } from './lib/logger.js';
+import { encrypt, decrypt, isEncrypted } from './lib/encrypt.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -443,9 +444,12 @@ class Database {
       if (!this.data.providerKeys) this.data.providerKeys = {};
       if (!this.data.providerKeys[providerName]) this.data.providerKeys[providerName] = [];
 
-      // Don't duplicate
-      if (!this.data.providerKeys[providerName].includes(apiKey)) {
-        this.data.providerKeys[providerName].push(apiKey);
+      const encrypted = encrypt(apiKey);
+
+      // Don't duplicate (compare plaintext against decrypted stored keys)
+      const existing = this.data.providerKeys[providerName].map((k) => decrypt(k));
+      if (!existing.includes(apiKey)) {
+        this.data.providerKeys[providerName].push(encrypted);
       }
 
       if (this.isPostgres) {
@@ -459,11 +463,14 @@ class Database {
 
   async removeProviderKey(providerName, apiKey) {
     return this._mutex.withLock(async () => {
-      const keys = this.data.providerKeys?.[providerName];
-      if (!keys) return null;
-      const idx = keys.indexOf(apiKey);
+      const stored = this.data.providerKeys?.[providerName];
+      if (!stored) return null;
+
+      // Find matching key by decrypting each stored entry
+      const idx = stored.findIndex((k) => decrypt(k) === apiKey);
       if (idx === -1) return null;
-      keys.splice(idx, 1);
+
+      stored.splice(idx, 1);
       if (this.isPostgres) {
         await this.saveConfigToPostgres();
       } else {
@@ -474,11 +481,17 @@ class Database {
   }
 
   async getProviderKeys(providerName) {
-    return this.data.providerKeys?.[providerName] || [];
+    const stored = this.data.providerKeys?.[providerName] || [];
+    return stored.map((k) => decrypt(k));
   }
 
   async listProviderKeys() {
-    return this.data.providerKeys || {};
+    const raw = this.data.providerKeys || {};
+    const result = {};
+    for (const [name, keys] of Object.entries(raw)) {
+      result[name] = keys.map((k) => decrypt(k));
+    }
+    return result;
   }
 
   async regenerateSwarmKeys() {
