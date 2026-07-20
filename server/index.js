@@ -19,6 +19,7 @@ import { syncProviderKeys, getProviderForModel, getAvailableProviders, getFallba
 import { requireUserAuth, hashPassword, verifyPassword, createSession, destroySession, getSession } from './lib/auth.js';
 import { classifyDepartment } from './lib/classifier.js';
 import { sendAlert } from './lib/webhook.js';
+import { configureCsrf, requireCsrf } from './lib/csrf.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
@@ -50,7 +51,9 @@ if (REQUIRED_ENV_VARS.length > 0) {
 // Trust proxy for correct IP detection behind reverse proxies (nginx, ELB, etc.)
 app.set('trust proxy', 1);
 app.use(helmet({
-  contentSecurityPolicy: NODE_ENV === 'production' ? {
+  // In production, CSP is set by nginx (with per-request nonces).
+  // In development, allow unsafe-inline for Vite HMR.
+  contentSecurityPolicy: NODE_ENV !== 'production' ? {
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
@@ -80,6 +83,14 @@ app.use(cors({
 
 app.use(compression());
 app.use(express.json({ limit: '64kb' }));
+
+// ── CSRF configuration ─────────────────────
+const ALLOWED_ORIGINS = [
+  CORS_ORIGIN !== '*' ? CORS_ORIGIN : null,
+  process.env.APP_URL || null,
+  `http://localhost:${PORT}`,
+].filter(Boolean);
+configureCsrf(ALLOWED_ORIGINS);
 
 // ── Request ID tracing ──────────────────────
 app.use((req, res, next) => {
@@ -502,8 +513,8 @@ app.get('/api/init', controlPlaneLimiter, (req, res) => {
   res.status(200).json({ token: CONTROL_PLANE_TOKEN, ...data });
 });
 
-// 0d. Auth endpoints (rate limited to prevent brute force)
-app.post('/api/register', apiLimiter, async (req, res, next) => {
+// 0d. Auth endpoints (rate limited + CSRF protected)
+app.post('/api/register', apiLimiter, requireCsrf, async (req, res, next) => {
   try {
     const { username, password, department } = req.body;
     if (!username || !password) {
@@ -541,7 +552,7 @@ app.post('/api/register', apiLimiter, async (req, res, next) => {
   }
 });
 
-app.post('/api/login', apiLimiter, async (req, res, next) => {
+app.post('/api/login', apiLimiter, requireCsrf, async (req, res, next) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {

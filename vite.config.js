@@ -5,7 +5,19 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        name: 'csp-nonce',
+        enforce: 'post',
+        transformIndexHtml(html) {
+          return html.replace(
+            /<script type="module"/g,
+            '<script type="module" nonce="__NONCE__"'
+          )
+        },
+      },
+    ],
     define: {
       __API_URL__: JSON.stringify(env.VITE_API_URL || ''),
     },
