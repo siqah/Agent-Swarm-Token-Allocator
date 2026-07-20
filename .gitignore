@@ -30,5 +30,11 @@ dist-ssr
 
 # Local DB stores
 db.json
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
 server/db.json
 server/db.json.tmp
+server/*.db*
+server/db_data/

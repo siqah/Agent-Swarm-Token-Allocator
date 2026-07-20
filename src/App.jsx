@@ -1,339 +1,308 @@
-import { useState, useCallback, useEffect } from 'react';
-import { AllocationProvider, useAllocation, useAllocationDispatch, ACTIONS } from './context/AllocationContext';
-import { CostProvider } from './context/CostContext';
-import Header from './components/layout/Header';
-import Sidebar from './components/layout/Sidebar';
-import AllocationTable from './components/allocation/AllocationTable';
-import MetricsPanel from './components/layout/MetricsPanel';
-import AlertToast from './components/feedback/AlertToast';
-import ErrorBoundary from './components/feedback/ErrorBoundary';
-import KeyboardShortcuts from './components/feedback/KeyboardShortcuts';
-import './styles/tokens.css';
-import './styles/global.css';
-import './styles/layout.css';
-import './styles/animations.css';
+import React, { useState, useCallback, useMemo } from 'react';
+import { useNodesState, useEdgesState } from '@xyflow/react';
+import { Play, Save, FolderOpen, PieChart, Layers, Sparkles, Loader2, Check } from 'lucide-react';
+import { WorkflowProvider, useWorkflow } from './context/WorkflowContext';
+import AgentLibrary from './components/canvas/AgentLibrary';
+import WorkflowCanvas from './components/canvas/WorkflowCanvas';
+import AgentConfigPanel from './components/canvas/AgentConfigPanel';
+import RunInspector from './components/inspector/RunInspector';
+import CostDashboard from './components/cost/CostDashboard';
+import './styles/globals.css';
 
-function SkeletonBlock({ width, height, style }) {
-  return (
-    <div className="skeleton-block" style={{ width, height, ...style }} />
-  );
-}
+const INITIAL_NODES = [
+  {
+    id: 'node-1',
+    type: 'agentNode',
+    position: { x: 100, y: 150 },
+    data: {
+      name: 'GPT-4 Agent',
+      icon: 'Code',
+      model: 'gpt-5.6-terra',
+      temperature: 0.3,
+      systemPrompt: 'Generate code based on prompt requirements.',
+      status: 'idle',
+    },
+  },
+  {
+    id: 'node-2',
+    type: 'agentNode',
+    position: { x: 450, y: 150 },
+    data: {
+      name: 'Claude Agent',
+      icon: 'ShieldCheck',
+      model: 'claude-3.5-sonnet',
+      temperature: 0.5,
+      systemPrompt: 'Critique and optimize the provided code for security and clarity.',
+      status: 'idle',
+    },
+  },
+];
 
-function AppContent() {
-  const state = useAllocation();
-  const dispatch = useAllocationDispatch();
-  const [viewMode, setViewMode] = useState('allocated');
-  const [elapsed, setElapsed] = useState(0);
-  const [hoveredNodeId, setHoveredNodeId] = useState(null);
-  const [connected, setConnected] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [ctrlToken, setCtrlToken] = useState(null);
+const INITIAL_EDGES = [
+  {
+    id: 'e1-2',
+    source: 'node-1',
+    target: 'node-2',
+    animated: true,
+    style: { stroke: '#22d3ee', strokeWidth: 2 },
+  },
+];
 
-  const isSimulating = state.simulationActive;
+function PlannerDashboard() {
+  const [nodes, setNodes, onNodesChange] = useNodesState(INITIAL_NODES);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(INITIAL_EDGES);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [workflowName, setWorkflowName] = useState('New Agent Swarm Workflow');
+  const [showCostDashboard, setShowCostDashboard] = useState(true);
+  const [activeRightTab, setActiveRightTab] = useState('inspector'); // 'config' | 'inspector'
+  const [isSaved, setIsSaved] = useState(false);
 
-  const totalTokens = Object.values(state.usage || {}).reduce(
-    (sum, u) => sum + (u.total || 0), 0
-  );
+  const {
+    workflows,
+    currentWorkflow,
+    setCurrentWorkflow,
+    runState,
+    runLogs,
+    isRunning,
+    sessionCost,
+    saveWorkflow,
+    executeRun,
+  } = useWorkflow();
 
-  function formatTokens(n) {
-    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-    if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
-    return String(n);
-  }
+  // Helper to update node status during execution
+  const updateNodeStatus = useCallback((nodeId, status, tokens) => {
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === nodeId
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                status,
+                tokens: tokens !== undefined ? tokens : n.data.tokens,
+              },
+            }
+          : n
+      )
+    );
+  }, [setNodes]);
 
-  function authHeaders() {
-    return ctrlToken
-      ? { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ctrlToken}` }
-      : { 'Content-Type': 'application/json' };
-  }
+  // Handle Node selection
+  const handleSelectNode = useCallback((node) => {
+    setSelectedNode(node);
+    if (node) setActiveRightTab('config');
+  }, []);
 
-  async function fetchInit() {
-    try {
-      const res = await fetch('/api/init');
-      if (!res.ok) throw new Error('Server error');
-      const data = await res.json();
-      setConnected(true);
-      setCtrlToken(data.token || null);
-      return data;
-    } catch {
-      setConnected(false);
-      return null;
-    }
-  }
+  // Update Node Data from config panel
+  const handleUpdateNode = useCallback((nodeId, newData) => {
+    setNodes((nds) =>
+      nds.map((n) => (n.id === nodeId ? { ...n, data: newData } : n))
+    );
+    setSelectedNode((prev) => (prev?.id === nodeId ? { ...prev, data: newData } : prev));
+  }, [setNodes]);
 
-  async function fetchStatus() {
-    try {
-      const res = await fetch('/api/status');
-      if (!res.ok) throw new Error('Server error');
-      const data = await res.json();
-      setConnected(true);
-      return data;
-    } catch {
-      setConnected(false);
-      return null;
-    }
-  }
+  // Delete Node
+  const handleDeleteNode = useCallback((nodeId) => {
+    setNodes((nds) => nds.filter((n) => n.id !== nodeId));
+    setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
+    setSelectedNode(null);
+  }, [setNodes, setEdges]);
 
-  useEffect(() => {
-    fetchInit().then((data) => {
-      if (data) {
-        const { token, ...rest } = data;
-        dispatch({ type: ACTIONS.SET_STATE, payload: rest });
-      }
-      setLoading(false);
-    });
-  }, [dispatch]);
-
-  useEffect(() => {
-    const apiUrl = typeof __API_URL__ !== 'undefined' && __API_URL__ ? __API_URL__ : '';
-    const source = new EventSource(`${apiUrl}/api/stream`);
-
-    source.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setConnected(true);
-        dispatch({
-          type: ACTIONS.SET_STATE,
-          payload: {
-            usage: data.usage,
-            simulationActive: data.simulationActive,
-          },
-        });
-      } catch {
-        setConnected(false);
-      }
+  // Handle Save
+  const handleSave = async () => {
+    const graph = {
+      nodes: nodes.map((n) => ({
+        id: n.id,
+        type: n.type,
+        position: n.position,
+        data: n.data,
+      })),
+      edges: edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+      })),
     };
 
-    source.onerror = () => {
-      setConnected(false);
+    await saveWorkflow(workflowName, graph);
+    setIsSaved(true);
+    setTimeout(() => setIsSaved(false), 2000);
+  };
+
+  // Load selected workflow
+  const handleLoadWorkflow = (wfId) => {
+    const wf = workflows.find((w) => w.id === parseInt(wfId, 10));
+    if (!wf) return;
+
+    setCurrentWorkflow(wf);
+    setWorkflowName(wf.name);
+
+    const graph = typeof wf.graphJson === 'string' ? JSON.parse(wf.graphJson) : wf.graphJson;
+    setNodes(graph.nodes || []);
+    setEdges(graph.edges || []);
+    setSelectedNode(null);
+  };
+
+  // Handle Run Execution
+  const handleRun = async () => {
+    // Reset node statuses
+    setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, status: 'pending', tokens: 0 } })));
+    setActiveRightTab('inspector');
+
+    const graph = {
+      nodes: nodes.map((n) => ({
+        id: n.id,
+        type: n.type,
+        position: n.position,
+        data: n.data,
+      })),
+      edges: edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+      })),
     };
 
-    return () => source.close();
-  }, [dispatch]);
-
-  useEffect(() => {
-    if (!state.departments || state.departments.length === 0) return;
-
-    const timer = setTimeout(() => {
-      fetch('/api/config', {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({
-          totalBudget: state.totalBudget,
-          selectedModel: state.selectedModel,
-          departments: state.departments,
-          thresholds: state.thresholds,
-        }),
-      }).catch(() => setConnected(false));
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [state.totalBudget, state.selectedModel, state.departments, state.thresholds]);
-
-  useEffect(() => {
-    if (!isSimulating) {
-      setElapsed(0);
-      return;
-    }
-    const timer = setInterval(() => {
-      setElapsed((prev) => prev + 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [isSimulating]);
-
-  const toggleSimulation = useCallback(() => {
-    fetch('/api/simulation/toggle', { method: 'POST', headers: authHeaders() })
-      .then((res) => res.json())
-      .then((data) => {
-        dispatch({
-          type: ACTIONS.SET_STATE,
-          payload: { simulationActive: data.simulationActive },
-        });
-        if (data.simulationActive) {
-          setViewMode('consumption');
-        }
-      })
-      .catch(() => setConnected(false));
-  }, [dispatch, ctrlToken]);
-
-  const handleClearUsage = useCallback(() => {
-    fetch('/api/usage/reset', { method: 'POST', headers: authHeaders() })
-      .then((res) => res.json())
-      .then((data) => {
-        dispatch({ type: ACTIONS.SET_STATE, payload: { usage: data.usage } });
-      })
-      .catch(() => setConnected(false));
-  }, [dispatch, ctrlToken]);
-
-  const handleKeyDown = useCallback((e) => {
-    const target = e.target;
-    const isEditing =
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      target?.isContentEditable;
-
-    if (isEditing) return;
-
-    const mod = e.metaKey || e.ctrlKey;
-
-    if (mod && e.key === 'z' && !e.shiftKey) {
-      e.preventDefault();
-      dispatch({ type: ACTIONS.UNDO });
-      return;
-    }
-
-    if ((mod && e.key === 'z' && e.shiftKey) || (mod && e.key === 'Z')) {
-      e.preventDefault();
-      dispatch({ type: ACTIONS.REDO });
-      return;
-    }
-
-    if (e.key === 'r' && !mod) {
-      e.preventDefault();
-      dispatch({ type: ACTIONS.RESET });
-      return;
-    }
-
-    if (e.key === 's' && !mod) {
-      e.preventDefault();
-      toggleSimulation();
-      return;
-    }
-  }, [dispatch, toggleSimulation]);
-
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+    await executeRun(graph, updateNodeStatus);
+  };
 
   return (
-    <div className="app-shell">
-      <Header connected={connected} />
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 font-sans">
+      {/* Top Header Navigation */}
+      <header className="h-14 border-b border-slate-800 bg-slate-900 px-4 flex items-center justify-between z-10 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-cyan-400 font-bold tracking-wide">
+            <Layers className="w-5 h-5" />
+            <span className="text-sm">SWARM GATEWAY</span>
+          </div>
 
-      <main className="app-main">
-        {loading ? (
-          <>
-            <div className="skeleton-sidebar">
-              <SkeletonBlock width="100%" height={24} style={{ marginBottom: 16 }} />
-              {[1,2,3,4].map((i) => (
-                <SkeletonBlock key={i} width="100%" height={80} style={{ marginBottom: 8, borderRadius: 6 }} />
-              ))}
-            </div>
-            <div className="skeleton-center">
-              <SkeletonBlock width="80%" height={24} style={{ marginBottom: 24 }} />
-              <SkeletonBlock width="100%" height={360} style={{ borderRadius: 8 }} />
-            </div>
-            <div className="skeleton-metrics">
-              <SkeletonBlock width="100%" height={24} style={{ marginBottom: 16 }} />
-              {[1,2,3].map((i) => (
-                <SkeletonBlock key={i} width="100%" height={64} style={{ marginBottom: 8, borderRadius: 6 }} />
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            <ErrorBoundary>
-              <Sidebar onHoverNode={setHoveredNodeId} />
-            </ErrorBoundary>
-            <ErrorBoundary>
-              <section className="app-center">
-                <AllocationTable
-                  state={state}
-                  viewMode={viewMode}
-                  isSimulating={isSimulating}
-                  hoveredNodeId={hoveredNodeId}
-                  onHoverNode={setHoveredNodeId}
-                />
-              </section>
-            </ErrorBoundary>
-            <ErrorBoundary>
-              <MetricsPanel />
-            </ErrorBoundary>
-          </>
-        )}
-      </main>
+          <span className="text-slate-700">|</span>
 
-      <footer className="app-footer">
-        <div className="footer-left">
-          <span className="status-item">
-            <span className={`status-indicator ${connected ? 'status-indicator-green animate-live-pulse' : 'status-indicator-red'}`}>●</span>
-            {connected ? 'GATEWAY ONLINE' : 'GATEWAY OFFLINE'}
-          </span>
-          <span className="status-divider">|</span>
-          <span className="status-item">
-            MODEL: {state.selectedModel ? state.selectedModel.toUpperCase() : 'NONE'}
-          </span>
-          <span className="status-divider">|</span>
-          <span className="status-item">
-            TK: {formatTokens(totalTokens)}
-          </span>
-          {isSimulating && (
-            <>
-              <span className="status-divider">|</span>
-              <span className="status-item timer-pulse">
-                SIM: {elapsed}s
-              </span>
-            </>
+          {/* Workflow Title Input */}
+          <input
+            type="text"
+            value={workflowName}
+            onChange={(e) => setWorkflowName(e.target.value)}
+            className="bg-transparent text-sm font-medium text-slate-200 focus:outline-none focus:bg-slate-800/60 px-2 py-1 rounded transition-colors"
+          />
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex items-center gap-3">
+          {/* Workflow Selector */}
+          {workflows.length > 0 && (
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <FolderOpen className="w-3.5 h-3.5" />
+              <select
+                onChange={(e) => handleLoadWorkflow(e.target.value)}
+                value={currentWorkflow?.id || ''}
+                className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
+              >
+                <option value="" disabled>Load Workflow...</option>
+                {workflows.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           )}
+
+          {/* Save Button */}
+          <button
+            onClick={handleSave}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+          >
+            {isSaved ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Save className="w-3.5 h-3.5" />}
+            {isSaved ? 'Saved' : 'Save'}
+          </button>
+
+          {/* Run Button */}
+          <button
+            onClick={handleRun}
+            disabled={isRunning || nodes.length === 0}
+            className="flex items-center gap-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 text-slate-950 font-bold px-4 py-1.5 rounded-lg text-xs transition-all shadow-lg shadow-cyan-500/20"
+          >
+            {isRunning ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Executing...
+              </>
+            ) : (
+              <>
+                <Play className="w-3.5 h-3.5 fill-current" />
+                Run Workflow
+              </>
+            )}
+          </button>
+
+          <span className="text-slate-700">|</span>
+
+          {/* Toggle Cost Panel */}
+          <button
+            onClick={() => setShowCostDashboard((prev) => !prev)}
+            className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition-colors ${
+              showCostDashboard
+                ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+            }`}
+            title="Toggle Token Cost Dashboard"
+          >
+            <PieChart className="w-4 h-4" />
+            <span className="hidden sm:inline font-mono">${sessionCost.toFixed(3)}</span>
+          </button>
         </div>
+      </header>
 
-        <div className="footer-right">
-          <button
-            className="footer-btn"
-            onClick={() => dispatch({ type: ACTIONS.UNDO })}
-            title="Undo (Ctrl+Z)"
-          >
-            ↩ UNDO
-          </button>
+      {/* Main Studio Body */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Left Agent Library Sidebar */}
+        <AgentLibrary />
 
-          <button
-            className="footer-btn"
-            onClick={() => dispatch({ type: ACTIONS.REDO })}
-            title="Redo (Ctrl+Shift+Z)"
-          >
-            ↪ REDO
-          </button>
+        {/* Interactive React Flow Canvas */}
+        <WorkflowCanvas
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          setNodes={setNodes}
+          setEdges={setEdges}
+          onSelectNode={handleSelectNode}
+        />
 
-          <div className="footer-separator" />
+        {/* Right Sidebar: Config Panel or Inspector */}
+        {activeRightTab === 'config' && selectedNode ? (
+          <AgentConfigPanel
+            selectedNode={selectedNode}
+            onUpdateNode={handleUpdateNode}
+            onDeleteNode={handleDeleteNode}
+            onClose={() => setSelectedNode(null)}
+          />
+        ) : (
+          <RunInspector
+            runState={runState}
+            runLogs={runLogs}
+            isRunning={isRunning}
+          />
+        )}
+      </div>
 
-          <button
-            className="footer-btn"
-            onClick={() => setViewMode((prev) => (prev === 'allocated' ? 'consumption' : 'allocated'))}
-          >
-            {viewMode === 'allocated' ? 'ALLOCATED' : 'CONSUMED'}
-          </button>
-
-          <button
-            className="footer-btn"
-            onClick={handleClearUsage}
-            disabled={isSimulating}
-            title={isSimulating ? 'Stop simulation first' : 'Reset usage statistics'}
-          >
-            RESET
-          </button>
-
-          <button
-            className={`footer-btn sim-btn ${isSimulating ? 'sim-btn-stop' : 'sim-btn-start'}`}
-            onClick={toggleSimulation}
-          >
-            {isSimulating ? '■ STOP' : '▶ SIMULATE'}
-          </button>
-        </div>
-      </footer>
-
-      <AlertToast />
-      <KeyboardShortcuts />
+      {/* Bottom Collapsible Cost Dashboard */}
+      {showCostDashboard && (
+        <CostDashboard
+          runLogs={runLogs}
+          currentSessionCost={sessionCost}
+          budgetLimit={1.0}
+        />
+      )}
     </div>
   );
 }
 
 export default function App() {
   return (
-    <AllocationProvider>
-      <CostProvider>
-        <AppContent />
-      </CostProvider>
-    </AllocationProvider>
+    <WorkflowProvider>
+      <PlannerDashboard />
+    </WorkflowProvider>
   );
 }

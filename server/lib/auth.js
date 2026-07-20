@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { db } from '../database.js';
+import { dbCompat as db } from '../db/queries.js';
 import { logger } from './logger.js';
 
 const SALT_LENGTH = 16;

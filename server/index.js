@@ -4,7 +4,14 @@ import helmet from 'helmet';
 import compression from 'compression';
 import crypto from 'crypto';
 import * as Sentry from '@sentry/node';
-import { db } from './database.js';
+import { initDatabase, closeDatabase } from './db/index.js';
+import { dbCompat, ensureSwarmKeys } from './db/queries.js';
+import workflowsRouter from './routes/workflows.js';
+import runsRouter from './routes/runs.js';
+
+// Initialize SQLite database
+initDatabase();
+const db = dbCompat;
 import { logger } from './lib/logger.js';
 import { validate, chatCompletionSchema, configUpdateSchema } from './lib/validate.js';
 import { apiLimiter, controlPlaneLimiter } from './lib/rateLimiter.js';
@@ -15,7 +22,7 @@ import {
 } from './lib/metrics.js';
 import { checkCache, setCache, clearCache, getCacheStats } from './lib/cache.js';
 import { recordRequest, getLogs, clearLogs } from './lib/requestLog.js';
-import { syncProviderKeys, getProviderForModel, getAvailableProviders, getFallbackChain, selectKey } from './providers/index.js';
+import { syncProviderKeys, getProviderForModel, getAvailableProviders, selectKey } from './providers/index.js';
 import { requireUserAuth, hashPassword, verifyPassword, createSession, destroySession, getSession, generateResetToken, verifyResetToken } from './lib/auth.js';
 import { classifyDepartment } from './lib/classifier.js';
 import { sendAlert, sendBudgetThresholdAlert, resetAllThresholdNotified, resetThresholdNotified } from './lib/webhook.js';
@@ -107,6 +114,31 @@ app.use(trackRequest);
 
 app.use('/v1/', apiLimiter);
 
+// ── Workflow & Run Routes ────────────────────
+app.use('/api', workflowsRouter);
+// Attach chatFn middleware for the run executor
+app.use('/api', (req, res, next) => {
+  req.chatFn = ({ model, messages, temperature, stream }) => {
+    // Direct LLM call without budget enforcement (workflow engine handles its own tracking)
+    const provider = getProviderForModel(model);
+    if (provider && provider.isAvailable()) {
+      const apiKey = selectKey(provider.name);
+      return provider.call({ model, messages, temperature, key: apiKey });
+    }
+    // Mock fallback
+    const promptTokens = Math.floor(Math.random() * 800) + 200;
+    const completionTokens = Math.floor(Math.random() * 1200) + 300;
+    return Promise.resolve({
+      id: `chatcmpl-${Math.random().toString(36).substring(2, 11)}`,
+      model,
+      choices: [{ index: 0, message: { role: 'assistant', content: 'Mock response for workflow execution.' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens },
+    });
+  };
+  next();
+});
+app.use('/api', runsRouter);
+
 const CONTROL_PLANE_TOKEN = process.env.CONTROL_PLANE_TOKEN ||
   crypto.randomUUID();
 
@@ -153,39 +185,43 @@ const OPENAI_TIMEOUT = parseInt(process.env.OPENAI_TIMEOUT, 10) || 60000;
 
 
 
-const MODEL_PRICING = {
-  'gpt-5.6-sol':   { input: 5.00, output: 30.00 },
-  'gpt-5.6-terra': { input: 2.50, output: 15.00 },
-  'gpt-5.6-luna':  { input: 1.00, output: 6.00 },
-  'gpt-5.4-nano':  { input: 0.20, output: 1.25 },
-  'o1-preview':    { input: 15.00, output: 60.00 },
-  'o1-mini':       { input: 3.00, output: 12.00 },
-  'o3-mini':       { input: 1.10, output: 4.40 },
-  // Anthropic pricing
-  'claude-3.5-sonnet': { input: 3.00, output: 15.00 },
-  'claude-3.5-haiku':  { input: 1.00, output: 5.00 },
-  'claude-3-opus':     { input: 15.00, output: 75.00 },
-  // Google pricing
-  'gemini-2.0-flash':  { input: 0.10, output: 0.40 },
-  'gemini-2.0-pro':    { input: 1.25, output: 5.00 },
-  'gemini-1.5-pro':    { input: 1.25, output: 5.00 },
-  'gemini-1.5-flash':  { input: 0.075, output: 0.30 },
-  // Groq pricing
-  'llama-3.3-70b':     { input: 0.59, output: 0.79 },
-  'llama-3.1-8b':      { input: 0.05, output: 0.08 },
-  'mixtral-8x7b':      { input: 0.24, output: 0.24 },
-  'deepseek-r1':       { input: 0.55, output: 2.19 },
-};
-
-const FALLBACK_CHAIN = ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.4-nano'];
 const CROSS_PROVIDER_FALLBACK = true;
 
-function getPrice(modelId) {
-  return MODEL_PRICING[modelId] || MODEL_PRICING['gpt-5.6-terra'];
+let _pricingCache = null;
+let _pricingCacheTime = 0;
+const PRICING_CACHE_TTL = 5000;
+
+async function loadPricing() {
+  const now = Date.now();
+  if (_pricingCache && now - _pricingCacheTime < PRICING_CACHE_TTL) {
+    return _pricingCache;
+  }
+  const models = await db.getModels();
+  const prices = {};
+  for (const m of models) {
+    prices[m.id] = {
+      input: m.inputPrice ?? m.input ?? 2.50,
+      output: m.outputPrice ?? m.output ?? 15.00,
+      cached: m.cachedPrice ?? m.cached ?? 0,
+    };
+  }
+  _pricingCache = prices;
+  _pricingCacheTime = now;
+  return prices;
 }
 
-function estimateCost(modelId, inputTokens, outputTokens) {
-  const p = getPrice(modelId);
+function invalidatePricingCache() {
+  _pricingCache = null;
+  _pricingCacheTime = 0;
+}
+
+async function getPrice(modelId) {
+  const prices = await loadPricing();
+  return prices[modelId] || prices['gpt-5.6-terra'] || { input: 2.50, output: 15.00 };
+}
+
+async function estimateCost(modelId, inputTokens, outputTokens) {
+  const p = await getPrice(modelId);
   return (inputTokens / 1_000_000) * p.input + (outputTokens / 1_000_000) * p.output;
 }
 
@@ -193,17 +229,14 @@ function computeTokenAllocation(totalBudget, deptAllocPct, agentAllocPct) {
   return totalBudget * (deptAllocPct / 100) * (agentAllocPct / 100);
 }
 
-function getUsageStatus(dbData, agentId, agentTokenLimit, requestedModel) {
+async function getUsageStatus(dbData, agentId, agentTokenLimit, requestedModel) {
   const usage = dbData.usage[agentId]?.total || 0;
 
   if (usage < agentTokenLimit) {
     return { blocked: false, usage };
   }
 
-  // Cross-provider fallback chain
-  const chain = CROSS_PROVIDER_FALLBACK
-    ? getFallbackChain(requestedModel)
-    : FALLBACK_CHAIN.slice(FALLBACK_CHAIN.indexOf(requestedModel) + 1);
+  const chain = db.getFallbackChain(requestedModel);
 
   for (const fallbackModel of chain) {
     const provider = getProviderForModel(fallbackModel);
@@ -318,7 +351,7 @@ async function processChatCompletion({ agentId, deptId, model, messages, tempera
     : computeTokenAllocation(currentDb.totalBudget, dept.allocation, agent.allocation);
 
   // Budget check with cascade fallback
-  const status = getUsageStatus(currentDb, agentId, agentTokenLimit, model);
+  const status = await getUsageStatus(currentDb, agentId, agentTokenLimit, model);
 
   // Fire threshold alerts before block
   sendBudgetThresholdAlert(agentId, agent.name, dept.name, status.usage, agentTokenLimit, `http://localhost:${PORT}`);
@@ -880,6 +913,209 @@ app.get('/api/status', controlPlaneLimiter, (req, res) => {
   res.status(200).json(sanitizePublicData(db.get()));
 });
 
+// 3b. Model pricing CRUD
+const ROUTABLE_PREFIXES = ['gpt-', 'o1-', 'o3-', 'o1.', 'o3.', 'claude', 'gemini', 'llama', 'mixtral', 'deepseek'];
+
+app.get('/api/models', controlPlaneLimiter, async (req, res) => {
+  try {
+    let models = await db.getModels();
+    if (req.query.routable === 'true') {
+      models = models.filter(m => ROUTABLE_PREFIXES.some(pre => m.id.startsWith(pre)));
+    }
+    res.status(200).json({ models });
+  } catch (err) {
+    res.status(500).json({ error: { message: 'Failed to fetch models', type: 'server_error' } });
+  }
+});
+
+app.get('/api/models/:id', controlPlaneLimiter, async (req, res) => {
+  try {
+    const model = await db.getModel(req.params.id);
+    if (!model) return res.status(404).json({ error: { message: 'Model not found', type: 'not_found' } });
+    const fallbacks = db.getFallbackChain(req.params.id);
+    res.status(200).json({ model, fallbacks });
+  } catch (err) {
+    res.status(500).json({ error: { message: 'Failed to fetch model', type: 'server_error' } });
+  }
+});
+
+app.post('/api/models', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const { id, name, provider, tier, input, output, cached, description } = req.body;
+    if (!id || !name) {
+      return res.status(400).json({ error: { message: 'id and name are required', type: 'invalid_request_error' } });
+    }
+    const model = await db.upsertModel({
+      id, name, provider: provider || 'openai', tier: tier || 'balanced',
+      input, output, cached: cached || 0, description: description || '',
+    });
+    if (req.body.fallbacks) {
+      await db.setFallbackChain(id, req.body.fallbacks);
+    }
+    invalidatePricingCache();
+    await db.appendAuditLog({ action: 'model_upsert', modelId: id, name });
+    res.status(200).json({ success: true, model });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.put('/api/models/:id', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const existing = await db.getModel(req.params.id);
+    if (!existing) return res.status(404).json({ error: { message: 'Model not found', type: 'not_found' } });
+    const model = await db.upsertModel({
+      ...existing,
+      ...req.body,
+      id: req.params.id,
+    });
+    if (req.body.fallbacks) {
+      await db.setFallbackChain(req.params.id, req.body.fallbacks);
+    }
+    invalidatePricingCache();
+    await db.appendAuditLog({ action: 'model_update', modelId: req.params.id });
+    res.status(200).json({ success: true, model });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/api/models/:id', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const deleted = await db.deleteModel(req.params.id);
+    invalidatePricingCache();
+    await db.appendAuditLog({ action: 'model_delete', modelId: req.params.id });
+    res.status(200).json({ success: true, deleted });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 3c. Model fallback chains
+app.get('/api/models/:id/fallbacks', controlPlaneLimiter, async (req, res) => {
+  try {
+    const fallbacks = db.getFallbackChain(req.params.id);
+    res.status(200).json({ fallbacks });
+  } catch (err) {
+    res.status(500).json({ error: { message: 'Failed to fetch fallbacks', type: 'server_error' } });
+  }
+});
+
+app.put('/api/models/:id/fallbacks', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    await db.setFallbackChain(req.params.id, req.body.fallbacks || []);
+    invalidatePricingCache();
+    res.status(200).json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 3d. Clean up zero-priced models
+app.post('/api/models/cleanup', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const removed = await db.cleanupZeroPricedModels();
+    invalidatePricingCache();
+    res.status(200).json({ success: true, removed });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 3e. Sync model pricing from OpenRouter
+const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
+
+app.post('/api/models/sync', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const response = await fetch(OPENROUTER_MODELS_URL, {
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) {
+      throw new Error(`OpenRouter returned ${response.status}`);
+    }
+    const data = await response.json();
+    const list = data.data || [];
+
+    // Build provider map from OpenRouter ID prefix
+    const OR_PROVIDER_MAP = {
+      openai: 'openai', anthropic: 'anthropic',
+      google: 'google', 'meta-llama': 'groq',
+      mistralai: 'groq', deepseek: 'groq',
+    };
+
+    // Per-token → per-1M-tokens, skip negatives and zeros
+    const liveSet = new Set();
+    for (const item of list) {
+      const orId = item.id;
+      if (!orId) continue;
+
+      const pricing = item.pricing || {};
+      const inputPerToken = parseFloat(pricing.prompt);
+      const outputPerToken = parseFloat(pricing.completion);
+      if (!inputPerToken || !outputPerToken || inputPerToken <= 0 || outputPerToken <= 0) continue;
+
+      // Convert per-token → per-1M-tokens
+      const input = +(inputPerToken * 1_000_000).toFixed(4);
+      const output = +(outputPerToken * 1_000_000).toFixed(4);
+      if (input <= 0 || output <= 0) continue;
+
+      // Extract short model ID (strip provider/ prefix)
+      const slashIdx = orId.indexOf('/');
+      const orProvider = slashIdx > 0 ? orId.slice(0, slashIdx) : '';
+      const shortId = slashIdx > 0 ? orId.slice(slashIdx + 1) : orId;
+
+      // Detect provider
+      const provider = OR_PROVIDER_MAP[orProvider] || orProvider || null;
+      if (!provider) continue;
+
+      const name = item.name || shortId;
+
+      // Check if we already have this model (by short ID or full OpenRouter ID)
+      const existing = await db.getModel(shortId);
+      if (existing) {
+        await db.upsertModel({ ...existing, input, output, provider });
+        liveSet.add(shortId);
+      } else {
+        // Also check by full OpenRouter ID
+        const existingOr = await db.getModel(orId);
+        if (existingOr) {
+          await db.upsertModel({ ...existingOr, input, output, provider });
+          liveSet.add(orId);
+        } else {
+          // New model — add with short ID
+          await db.upsertModel({
+            id: shortId, name, provider,
+            tier: 'balanced',
+            input, output, cached: 0,
+            description: item.description || '',
+          });
+          liveSet.add(shortId);
+        }
+      }
+    }
+
+    // Remove models not in the sync set
+    let removed = 0;
+    const allModels = await db.getModels();
+    for (const m of allModels) {
+      if (!liveSet.has(m.id)) {
+        await db.deleteModel(m.id);
+        removed++;
+      }
+    }
+
+    invalidatePricingCache();
+    await db.appendAuditLog({ action: 'models_sync', liveCount: liveSet.size, removed });
+    res.status(200).json({ success: true, synced: true, liveCount: liveSet.size, removed });
+  } catch (err) {
+    logger.error('Model sync failed:', err.message);
+    res.status(502).json({
+      error: { message: `Sync failed: ${err.message}`, type: 'upstream_error', code: 'sync_failed' }
+    });
+  }
+});
+
 // 4. Control Plane: Simulation toggle
 app.post('/api/simulation/toggle', controlPlaneLimiter, requireControlAuth, async (req, res) => {
   const current = db.get().simulationActive;
@@ -1244,11 +1480,8 @@ function shutdown(signal) {
   stopInternalSimulation();
 
   const exit = () => {
-    if (db.pool?.end) {
-      db.pool.end().catch(() => {}).finally(() => process.exit(0));
-    } else {
-      process.exit(0);
-    }
+    try { closeDatabase(); } catch {}
+    process.exit(0);
   };
 
   if (server) {
@@ -1299,4 +1532,4 @@ if (!process.env.TEST_MODE) {
   });
 }
 
-export { processChatCompletion, estimateCost, MODEL_PRICING, FALLBACK_CHAIN, app, server, AppError, pipeStreamToResponse };
+export { processChatCompletion, estimateCost, app, server, AppError, pipeStreamToResponse };
