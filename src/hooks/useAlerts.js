@@ -29,6 +29,8 @@ export function useAlerts() {
         alerts.set(agent.id, {
           level,
           effectivePercent: Math.round(effectivePercent * 100) / 100,
+          agentName: agent.name,
+          deptName: dept.name,
         });
       });
     });

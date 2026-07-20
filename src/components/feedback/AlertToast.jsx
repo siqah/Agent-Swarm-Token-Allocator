@@ -21,7 +21,7 @@ export default function AlertToast() {
         newToasts.push({
           id: `${agentId}-${Date.now()}`,
           agentId,
-          message: `${agentId} has used ${alert.effectivePercent.toFixed(1)}% of its token budget!`,
+          message: `${alert.agentName || agentId} in ${alert.deptName || '?'} has used ${alert.effectivePercent.toFixed(1)}% of its token budget!`,
           level: 'danger',
           timestamp: Date.now(),
         });

@@ -3,7 +3,7 @@ import { AllocationProvider, useAllocation, useAllocationDispatch, ACTIONS } fro
 import { CostProvider } from './context/CostContext';
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
-import SankeyDiagram from './components/sankey/SankeyDiagram';
+import AllocationTable from './components/allocation/AllocationTable';
 import MetricsPanel from './components/layout/MetricsPanel';
 import AlertToast from './components/feedback/AlertToast';
 import ErrorBoundary from './components/feedback/ErrorBoundary';
@@ -209,7 +209,7 @@ function AppContent() {
 
   return (
     <div className="app-shell">
-      <Header />
+      <Header connected={connected} />
 
       <main className="app-main">
         {loading ? (
@@ -238,9 +238,10 @@ function AppContent() {
             </ErrorBoundary>
             <ErrorBoundary>
               <section className="app-center">
-                <SankeyDiagram 
-                  isSimulating={isSimulating} 
-                  viewMode={viewMode} 
+                <AllocationTable
+                  state={state}
+                  viewMode={viewMode}
+                  isSimulating={isSimulating}
                   hoveredNodeId={hoveredNodeId}
                   onHoverNode={setHoveredNodeId}
                 />
@@ -254,7 +255,7 @@ function AppContent() {
       </main>
 
       <footer className="app-footer">
-        <div className="status-bar-left">
+        <div className="footer-left">
           <span className="status-item">
             <span className={`status-indicator ${connected ? 'status-indicator-green animate-live-pulse' : 'status-indicator-red'}`}>●</span>
             {connected ? 'GATEWAY ONLINE' : 'GATEWAY OFFLINE'}
@@ -277,27 +278,46 @@ function AppContent() {
           )}
         </div>
 
-        <div className="status-bar-right">
+        <div className="footer-right">
           <button
-            className="status-button"
+            className="footer-btn"
+            onClick={() => dispatch({ type: ACTIONS.UNDO })}
+            title="Undo (Ctrl+Z)"
+          >
+            ↩ UNDO
+          </button>
+
+          <button
+            className="footer-btn"
+            onClick={() => dispatch({ type: ACTIONS.REDO })}
+            title="Redo (Ctrl+Shift+Z)"
+          >
+            ↪ REDO
+          </button>
+
+          <div className="footer-separator" />
+
+          <button
+            className="footer-btn"
             onClick={() => setViewMode((prev) => (prev === 'allocated' ? 'consumption' : 'allocated'))}
           >
-            {viewMode === 'allocated' ? 'VIEW: LIMITS' : 'VIEW: LIVE SPEND'}
+            {viewMode === 'allocated' ? 'ALLOCATED' : 'CONSUMED'}
           </button>
 
           <button
-            className="status-button"
+            className="footer-btn"
             onClick={handleClearUsage}
             disabled={isSimulating}
+            title={isSimulating ? 'Stop simulation first' : 'Reset usage statistics'}
           >
-            RESET STATS
+            RESET
           </button>
 
           <button
-            className={`status-button status-sim-trigger ${isSimulating ? 'sim-active' : ''}`}
+            className={`footer-btn sim-btn ${isSimulating ? 'sim-btn-stop' : 'sim-btn-start'}`}
             onClick={toggleSimulation}
           >
-            {isSimulating ? 'STOP SIMULATION' : 'SIMULATE SWARM'}
+            {isSimulating ? '■ STOP' : '▶ SIMULATE'}
           </button>
         </div>
       </footer>

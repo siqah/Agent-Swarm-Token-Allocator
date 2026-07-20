@@ -94,7 +94,7 @@
 }
 
 .sliderRow:hover {
-  background: oklch(1 0 0 / 0.015);
+  background: var(--bg-hover);
 }
 
 .sliderLabel {
@@ -265,13 +265,20 @@
   border-radius: var(--radius-sm);
   transition: all var(--duration-fast) var(--ease-out-quint);
   flex-shrink: 0;
-  opacity: 0;
+  opacity: 0.45;
   white-space: nowrap;
 }
 
 .sliderGroup:hover .actionButton,
 .sliderRow:hover .actionButton {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .actionButton {
+    opacity: 0.6;
+    border-color: var(--border-subtle);
+  }
 }
 
 .actionButton:hover {

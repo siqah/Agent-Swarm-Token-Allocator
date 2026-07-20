@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAllocation } from '../../context/AllocationContext';
 import styles from './GatewayLogs.module.css';
 
@@ -6,7 +6,6 @@ export default function GatewayLogs() {
   const { simulationActive } = useAllocation();
   const [logs, setLogs] = useState([]);
   const [ctrlToken, setCtrlToken] = useState(null);
-  const logsEndRef = useRef(null);
 
   useEffect(() => {
     fetch('/api/init').then((r) => r.json()).then((d) => {
@@ -51,10 +50,6 @@ export default function GatewayLogs() {
       }]);
     }
   }, [simulationActive, logs.length]);
-
-  useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
 
   function formatTime(iso) {
     if (!iso) return '';
@@ -115,7 +110,6 @@ export default function GatewayLogs() {
             </div>
           );
         })}
-        <div ref={logsEndRef} />
       </div>
     </div>
   );

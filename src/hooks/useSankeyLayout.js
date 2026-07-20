@@ -126,14 +126,19 @@ export function useSankeyLayout(state, width, height, viewMode = 'allocated') {
     });
 
     // ── Compute layout ─────────────────────
+    const padL = 80;
+    const padR = 110;
+    const padT = 8;
+    const padB = 8;
+
     const sankeyGenerator = sankey()
       .nodeId((d) => d.id)
-      .nodeWidth(18)
-      .nodePadding(20)
-      .nodeSort(null) // preserve insertion order
+      .nodeWidth(14)
+      .nodePadding(6)
+      .nodeSort(null)
       .extent([
-        [1, 24],
-        [width - 1, height - 24],
+        [padL, padT],
+        [width - padR, height - padB],
       ]);
 
     const graph = sankeyGenerator({
