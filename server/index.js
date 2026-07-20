@@ -1098,6 +1098,22 @@ app.delete('/api/providers/:name/keys', controlPlaneLimiter, requireControlAuth,
   }
 });
 
+// 8aa. Clear all keys for a provider
+app.delete('/api/providers/:name/keys/all', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const result = await db.clearProviderKeys(req.params.name);
+    if (!result) {
+      return res.status(404).json({
+        error: { message: 'No keys found for this provider.', type: 'invalid_request_error', code: 'not_found' }
+      });
+    }
+    syncProviderKeys(db);
+    res.status(200).json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // 8a. Provider health check
 app.get('/api/health/providers', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
   try {

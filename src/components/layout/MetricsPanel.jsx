@@ -7,6 +7,7 @@ import { useAllocation } from '../../context/AllocationContext';
 import { TotalCostCard, AgentCostCard } from '../feedback/CostCard';
 import GatewayLogs from '../feedback/GatewayLogs';
 import ConnectionDetails from '../feedback/ConnectionDetails';
+import ProviderKeys from '../feedback/ProviderKeys';
 import ExportButton from '../feedback/ExportButton';
 import ImportButton from '../feedback/ImportButton';
 import styles from './MetricsPanel.module.css';
@@ -14,6 +15,7 @@ import styles from './MetricsPanel.module.css';
 export default function MetricsPanel() {
   const { departments } = useAllocation();
   const [showKeys, setShowKeys] = useState(false);
+  const [showProviderKeys, setShowProviderKeys] = useState(false);
 
   return (
     <aside className={styles.metricsPanel}>
@@ -32,6 +34,21 @@ export default function MetricsPanel() {
       {showKeys && (
         <>
           <ConnectionDetails />
+          <div className={styles.divider} />
+        </>
+      )}
+
+      <button
+        className={styles.toggleSection}
+        onClick={() => setShowProviderKeys(!showProviderKeys)}
+      >
+        <span>Provider API Keys</span>
+        <span className={`${styles.chevron} ${showProviderKeys ? styles.chevronOpen : ''}`}>▶</span>
+      </button>
+
+      {showProviderKeys && (
+        <>
+          <ProviderKeys />
           <div className={styles.divider} />
         </>
       )}

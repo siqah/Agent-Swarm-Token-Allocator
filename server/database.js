@@ -497,6 +497,20 @@ class Database {
     return result;
   }
 
+  async clearProviderKeys(providerName) {
+    return this._mutex.withLock(async () => {
+      if (!this.data.providerKeys?.[providerName]) return null;
+      const count = this.data.providerKeys[providerName].length;
+      delete this.data.providerKeys[providerName];
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return { provider: providerName, removed: count };
+    });
+  }
+
   async regenerateSwarmKeys() {
     return this._mutex.withLock(async () => {
       this.data.swarmKeys = {};
