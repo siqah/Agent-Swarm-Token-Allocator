@@ -114,10 +114,34 @@ export async function requireUserAuth(req, res, next) {
   }
 }
 
+// ── Password Reset Tokens ──────────────────────
+const resetTokens = new Map();
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+export function generateResetToken(userId) {
+  const token = crypto.randomUUID();
+  resetTokens.set(token, { userId, expiresAt: Date.now() + RESET_TOKEN_TTL_MS });
+  return token;
+}
+
+export function verifyResetToken(token) {
+  const entry = resetTokens.get(token);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    resetTokens.delete(token);
+    return null;
+  }
+  resetTokens.delete(token); // one-time use
+  return entry.userId;
+}
+
 // Periodic cleanup of expired in-memory sessions
 setInterval(() => {
   const now = Date.now();
   for (const [token, session] of sessions) {
     if (now > session.expiresAt) sessions.delete(token);
+  }
+  for (const [token, entry] of resetTokens) {
+    if (now > entry.expiresAt) resetTokens.delete(token);
   }
 }, 60_000).unref();

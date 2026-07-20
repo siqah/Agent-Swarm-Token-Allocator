@@ -147,9 +147,11 @@ class Database {
     }
 
     try {
+      const poolSize = parseInt(process.env.PG_POOL_SIZE, 10) || 10;
       this.pool = new Pool({
         connectionString,
-        connectionTimeoutMillis: 3000
+        connectionTimeoutMillis: 3000,
+        max: poolSize,
       });
 
       const client = await this.pool.connect();
@@ -629,6 +631,20 @@ class Database {
         this.saveJson();
       }
       return { id, username, department: user.department, createdAt: user.createdAt };
+    });
+  }
+
+  async updateUserPassword(userId, newPasswordHash) {
+    return this._mutex.withLock(async () => {
+      const user = this.data.users.find((u) => u.id === userId);
+      if (!user) return null;
+      user.passwordHash = newPasswordHash;
+      if (this.isPostgres) {
+        await this.saveConfigToPostgres();
+      } else {
+        this.saveJson();
+      }
+      return { success: true };
     });
   }
 

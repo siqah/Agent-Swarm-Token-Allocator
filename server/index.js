@@ -16,10 +16,13 @@ import {
 import { checkCache, setCache, clearCache, getCacheStats } from './lib/cache.js';
 import { recordRequest, getLogs, clearLogs } from './lib/requestLog.js';
 import { syncProviderKeys, getProviderForModel, getAvailableProviders, getFallbackChain, selectKey } from './providers/index.js';
-import { requireUserAuth, hashPassword, verifyPassword, createSession, destroySession, getSession } from './lib/auth.js';
+import { requireUserAuth, hashPassword, verifyPassword, createSession, destroySession, getSession, generateResetToken, verifyResetToken } from './lib/auth.js';
 import { classifyDepartment } from './lib/classifier.js';
-import { sendAlert } from './lib/webhook.js';
+import { sendAlert, sendBudgetThresholdAlert, resetAllThresholdNotified, resetThresholdNotified } from './lib/webhook.js';
 import { configureCsrf, requireCsrf } from './lib/csrf.js';
+import { validateProviderKey, checkAllProviders } from './lib/providerHealth.js';
+import { recordProviderKeyValidation, getProviderKeyLogs } from './lib/providerKeyLog.js';
+import { swarmKeyLimiter } from './lib/rateLimiter.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
@@ -317,6 +320,9 @@ async function processChatCompletion({ agentId, deptId, model, messages, tempera
   // Budget check with cascade fallback
   const status = getUsageStatus(currentDb, agentId, agentTokenLimit, model);
 
+  // Fire threshold alerts before block
+  sendBudgetThresholdAlert(agentId, agent.name, dept.name, status.usage, agentTokenLimit, `http://localhost:${PORT}`);
+
   if (status.blocked) {
     incrementBudgetBlocked();
     sendAlert('budget_exhausted', {
@@ -601,7 +607,7 @@ app.get('/api/me', requireUserAuth, (req, res) => {
 });
 
 // 1. LLM Chat completions — OpenAI SDK compatible
-app.post('/v1/chat/completions', validate(chatCompletionSchema), async (req, res) => {
+app.post('/v1/chat/completions', swarmKeyLimiter, validate(chatCompletionSchema), async (req, res) => {
   const startTime = Date.now();
   const authHeader = req.headers['authorization'];
   let swarmKey = null;
@@ -712,7 +718,7 @@ app.post('/v1/chat/completions', validate(chatCompletionSchema), async (req, res
 });
 
 // 1b. Task routing — classify prompt and route to best agent
-app.post('/v1/swarm/task', async (req, res) => {
+app.post('/v1/swarm/task', swarmKeyLimiter, async (req, res) => {
   const startTime = Date.now();
   const authHeader = req.headers['authorization'];
   let swarmKey = null;
@@ -890,6 +896,8 @@ app.post('/api/simulation/toggle', controlPlaneLimiter, requireControlAuth, asyn
 app.post('/api/usage/reset', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
   try {
     const usage = await db.resetUsage();
+    // Clear all threshold notification states so alerts re-fire after budget renewal
+    resetAllThresholdNotified();
     await db.appendAuditLog({ action: 'usage_reset' });
     res.status(200).json({ success: true, usage });
   } catch (err) {
@@ -1053,6 +1061,14 @@ app.post('/api/providers/:name/keys', controlPlaneLimiter, requireControlAuth, a
         error: { message: 'key is required.', type: 'invalid_request_error', code: 'missing_fields' }
       });
     }
+    // Validate key before storing
+    const validation = await validateProviderKey(req.params.name, key);
+    recordProviderKeyValidation(req.params.name, validation);
+    if (!validation.valid) {
+      return res.status(400).json({
+        error: { message: `Provider key validation failed: ${validation.error || `HTTP ${validation.status}`}. Check the key and try again.`, type: 'invalid_request_error', code: 'key_validation_failed' }
+      });
+    }
     const result = await db.setProviderKey(req.params.name, key);
     syncProviderKeys(db);
     res.status(201).json({ success: true, ...result });
@@ -1080,6 +1096,72 @@ app.delete('/api/providers/:name/keys', controlPlaneLimiter, requireControlAuth,
   } catch (err) {
     next(err);
   }
+});
+
+// 8a. Provider health check
+app.get('/api/health/providers', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const results = await checkAllProviders();
+    const allHealthy = results.every((r) => r.available);
+    res.status(200).json({ healthy: allHealthy, providers: results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 8b. Password reset — request
+app.post('/api/forgot-password', apiLimiter, async (req, res, next) => {
+  try {
+    const { username } = req.body;
+    if (!username) {
+      return res.status(400).json({
+        error: { message: 'username is required.', type: 'invalid_request_error', code: 'missing_fields' }
+      });
+    }
+    const user = db.findUserByUsername(username);
+    if (!user) {
+      // Don't reveal whether user exists
+      return res.status(200).json({ success: true, message: 'If the user exists, a reset link has been generated.' });
+    }
+    const token = generateResetToken(user.id);
+    logger.info(`Password reset token for ${username}: ${token} (in production, email this to the user)`);
+    res.status(200).json({ success: true, message: 'If the user exists, a reset link has been generated.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 8c. Password reset — complete
+app.post('/api/reset-password', apiLimiter, async (req, res, next) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        error: { message: 'token and newPassword are required.', type: 'invalid_request_error', code: 'missing_fields' }
+      });
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 6) {
+      return res.status(400).json({
+        error: { message: 'newPassword must be at least 6 characters.', type: 'invalid_request_error', code: 'validation_error' }
+      });
+    }
+    const userId = verifyResetToken(token);
+    if (!userId) {
+      return res.status(400).json({
+        error: { message: 'Invalid or expired reset token.', type: 'invalid_request_error', code: 'invalid_token' }
+      });
+    }
+    const passwordHash = await hashPassword(newPassword);
+    await db.updateUserPassword(userId, passwordHash);
+    res.status(200).json({ success: true, message: 'Password reset successfully.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 8d. Provider key validation logs
+app.get('/api/provider-key-logs', controlPlaneLimiter, requireControlAuth, (req, res) => {
+  res.status(200).json(getProviderKeyLogs());
 });
 
 // 9. Cache management

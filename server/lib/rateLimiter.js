@@ -4,6 +4,9 @@ import { logger } from './logger.js';
 
 const REDIS_URL = process.env.REDIS_URL || null;
 
+// Per-swarm-key rate limiting: separate store that keys on the swarm key value
+const SWARM_KEY_RATE_LIMIT = parseInt(process.env.SWARM_KEY_RATE_LIMIT, 10) || 60; // req/min per key
+
 let redisClient = null;
 
 async function getRedisClient() {
@@ -26,7 +29,7 @@ async function getRedisClient() {
 class RedisStore {
   async init(options) {
     this.windowMs = options.windowMs;
-    this.prefix = 'rl:';
+    if (!this.prefix) this.prefix = 'rl:';
     this.client = await getRedisClient();
   }
 
@@ -71,16 +74,31 @@ function createOpts(max) {
   };
 }
 
-const store = new RedisStore();
+function createStore(prefix) {
+  const s = new RedisStore();
+  s.prefix = prefix;
+  s.init({ windowMs: 60 * 1000 }).catch(() => {});
+  return s;
+}
 
-export const apiLimiter = rateLimit({ ...createOpts(120), store });
+export const apiLimiter = rateLimit({ ...createOpts(120), store: createStore('rl:api:') });
 export const controlPlaneLimiter = rateLimit({
   ...createOpts(30),
-  store,
+  store: createStore('rl:ctrl:'),
   message: {
     error: { message: 'Too many requests. Try again in a moment.', type: 'rate_limit_error', code: 'rate_limited' }
   },
 });
 
-// Initialize the store asynchronously (graceful if Redis is down)
-store.init({ windowMs: 60 * 1000 }).catch(() => {});
+// Per-swarm-key rate limiter: keys on the swarm API key from Authorization header
+export const swarmKeyLimiter = rateLimit({
+  ...createOpts(SWARM_KEY_RATE_LIMIT),
+  store: createStore('rl:swarm:'),
+  keyGenerator: (req) => {
+    const auth = req.headers['authorization'];
+    if (auth && auth.startsWith('Bearer ')) {
+      return auth.substring(7);
+    }
+    return 'unknown';
+  },
+});

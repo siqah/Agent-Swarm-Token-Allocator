@@ -10,11 +10,17 @@ function timestamp() {
 
 function formatEntry(level, args) {
   if (USE_JSON) {
-    return JSON.stringify({
+    const entry = {
       timestamp: timestamp(),
       level,
       message: args.map(String).join(' '),
-    }) + '\n';
+    };
+    // Extract error details if last arg is an Error
+    const last = args[args.length - 1];
+    if (last instanceof Error) {
+      entry.error = { message: last.message, stack: last.stack?.split('\n').slice(0, 5).join('\n') };
+    }
+    return JSON.stringify(entry) + '\n';
   }
   return `[${timestamp()}] [${level}] ${args.map(String).join(' ')}\n`;
 }
