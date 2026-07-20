@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import styles from './ProviderKeys.module.css';
 
 const PROVIDER_INFO = {
@@ -8,7 +8,7 @@ const PROVIDER_INFO = {
   groq:      { label: 'Groq',       color: '#F97316' },
 };
 
-export default function ProviderKeys() {
+function ProviderKeys() {
   const [providers, setProviders] = useState([]);
   const [ctrlToken, setCtrlToken] = useState(null);
   const [keyInputs, setKeyInputs] = useState({});
@@ -166,3 +166,5 @@ export default function ProviderKeys() {
     </div>
   );
 }
+
+export default memo(ProviderKeys);

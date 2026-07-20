@@ -2,7 +2,7 @@
  * MetricsPanel — Right sidebar with total cost and per-agent cost cards.
  */
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { useAllocation } from '../../context/AllocationContext';
 import { TotalCostCard, AgentCostCard } from '../feedback/CostCard';
 import GatewayLogs from '../feedback/GatewayLogs';
@@ -12,7 +12,7 @@ import ExportButton from '../feedback/ExportButton';
 import ImportButton from '../feedback/ImportButton';
 import styles from './MetricsPanel.module.css';
 
-export default function MetricsPanel() {
+function MetricsPanelInner() {
   const { departments } = useAllocation();
   const [showKeys, setShowKeys] = useState(false);
   const [showProviderKeys, setShowProviderKeys] = useState(false);
@@ -80,3 +80,5 @@ export default function MetricsPanel() {
     </aside>
   );
 }
+
+export default memo(MetricsPanelInner);
