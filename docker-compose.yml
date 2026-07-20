@@ -7,8 +7,9 @@ services:
       POSTGRES_USER: ${PG_USER:-postgres}
       POSTGRES_PASSWORD: ${PG_PASSWORD:?PG_PASSWORD is required. Set it in .env or export PG_PASSWORD=yourpassword}
       POSTGRES_DB: ${PG_DATABASE:-swarm_allocator}
-    ports:
-      - "${PG_PORT:-5432}:5432"
+    # Remove this line to keep Postgres internal-only (recommended for production):
+    # ports:
+    #   - "${PG_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

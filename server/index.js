@@ -34,6 +34,8 @@ if (SENTRY_DSN) {
   logger.info('Sentry disabled. Set SENTRY_DSN to enable.');
 }
 
+const MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH, 10) || 100000;
+
 // ── Environment validation ─────────────────
 const REQUIRED_ENV_VARS = [];
 if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) {
@@ -45,6 +47,8 @@ if (REQUIRED_ENV_VARS.length > 0) {
 }
 
 // ── Security Middleware ──────────────────────
+// Trust proxy for correct IP detection behind reverse proxies (nginx, ELB, etc.)
+app.set('trust proxy', 1);
 app.use(helmet({
   contentSecurityPolicy: NODE_ENV === 'production' ? {
     directives: {
@@ -57,6 +61,11 @@ app.use(helmet({
       formAction: ["'self'"],
       upgradeInsecureRequests: [],
     },
+  } : false,
+  strictTransportSecurity: NODE_ENV === 'production' ? {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
   } : false,
 }));
 
@@ -722,6 +731,11 @@ app.post('/v1/swarm/task', async (req, res) => {
       error: { message: 'prompt is required and must be a string.', type: 'invalid_request_error', code: 'missing_fields' }
     });
   }
+  if (prompt.length > MAX_PROMPT_LENGTH) {
+    return res.status(400).json({
+      error: { message: `prompt must not exceed ${MAX_PROMPT_LENGTH} characters.`, type: 'invalid_request_error', code: 'validation_error' }
+    });
+  }
 
   const data = db.get();
   const classification = classifyDepartment(data.departments, prompt);
@@ -790,6 +804,11 @@ app.post('/api/config', controlPlaneLimiter, requireControlAuth, async (req, res
   try {
     const updated = await db.updateConfig(req.body);
     await db.ensureSwarmKeys();
+    await db.appendAuditLog({
+      action: 'config_update',
+      changes: Object.keys(req.body),
+      userId: req.userId || 'control-plane',
+    });
     res.status(200).json({ success: true, config: updated });
   } catch (err) {
     if (err.message.match(/^(totalBudget|selectedModel|departments|thresholds)/)) {
@@ -852,6 +871,7 @@ app.post('/api/simulation/toggle', controlPlaneLimiter, requireControlAuth, asyn
   } else {
     await startInternalSimulation();
   }
+  await db.appendAuditLog({ action: 'simulation_toggle', enabled: !current });
   res.status(200).json({ success: true, simulationActive: db.get().simulationActive });
 });
 
@@ -859,6 +879,7 @@ app.post('/api/simulation/toggle', controlPlaneLimiter, requireControlAuth, asyn
 app.post('/api/usage/reset', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
   try {
     const usage = await db.resetUsage();
+    await db.appendAuditLog({ action: 'usage_reset' });
     res.status(200).json({ success: true, usage });
   } catch (err) {
     next(err);
@@ -1072,6 +1093,18 @@ app.get('/api/logs', controlPlaneLimiter, requireControlAuth, (req, res) => {
 app.delete('/api/logs', controlPlaneLimiter, requireControlAuth, (req, res) => {
   clearLogs();
   res.status(200).json({ success: true, message: 'Logs cleared.' });
+});
+
+// 11. Audit log
+app.get('/api/audit', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const limit = parseInt(req.query.limit, 10) || 50;
+    const offset = parseInt(req.query.offset, 10) || 0;
+    const result = await db.getAuditLog(limit, offset);
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── Sentry error handler (before custom handler) ──

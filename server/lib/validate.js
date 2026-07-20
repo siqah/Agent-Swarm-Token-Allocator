@@ -1,8 +1,10 @@
 import { z } from 'zod';
 
+const MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH, 10) || 100000;
+
 const messageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
-  content: z.string(),
+  content: z.string().max(MAX_PROMPT_LENGTH, `content must not exceed ${MAX_PROMPT_LENGTH} characters`),
   name: z.string().optional(),
 });
 

@@ -16,8 +16,13 @@ FROM nginx:1.27-alpine
 RUN rm -rf /usr/share/nginx/html/* && \
     rm -f /etc/nginx/conf.d/default.conf
 
+RUN adduser -D -H -u 1000 -s /bin/nologin swarm && \
+    chown -R swarm:swarm /usr/share/nginx/html /var/cache/nginx /var/run
+
 COPY infra/nginx/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
+
+USER swarm
 
 EXPOSE 80
 

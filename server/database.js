@@ -115,6 +115,7 @@ const DEFAULTS = {
   swarmKeys: {},
   providerKeys: {},
   users: [],
+  auditLog: [],
 };
 
 class Database {
@@ -375,7 +376,7 @@ class Database {
   }
 
   generateSwarmKey(agentId, _agentName) {
-    const suffix = Math.random().toString(36).substring(2, 8);
+    const suffix = crypto.randomUUID().split('-')[0];
     return `swarm-${agentId}-${suffix}`;
   }
 
@@ -633,6 +634,32 @@ class Database {
 
   async listUsers() {
     return this.data.users.map(({ passwordHash, ...rest }) => rest);
+  }
+
+  // ── Audit log ─────────────────────────────
+  async appendAuditLog(entry) {
+    const log = {
+      timestamp: new Date().toISOString(),
+      ...entry,
+    };
+    this.data.auditLog.push(log);
+    // Keep last 500 entries
+    if (this.data.auditLog.length > 500) {
+      this.data.auditLog = this.data.auditLog.slice(-500);
+    }
+    if (this.isPostgres) {
+      await this.saveConfigToPostgres();
+    } else {
+      this.saveJson();
+    }
+  }
+
+  async getAuditLog(limit = 50, offset = 0) {
+    const logs = this.data.auditLog || [];
+    return {
+      entries: logs.slice(offset, offset + limit).reverse(),
+      total: logs.length,
+    };
   }
 }
 
