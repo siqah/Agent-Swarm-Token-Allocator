@@ -166,6 +166,15 @@ function AppContent() {
   }, [dispatch, ctrlToken]);
 
   const handleKeyDown = useCallback((e) => {
+    const target = e.target;
+    const isEditing =
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      target?.isContentEditable;
+
+    if (isEditing) return;
+
     const mod = e.metaKey || e.ctrlKey;
 
     if (mod && e.key === 'z' && !e.shiftKey) {
