@@ -19,63 +19,55 @@ function MetricsPanelInner() {
 
   return (
     <aside className={styles.metricsPanel}>
-      <TotalCostCard />
+      <div className={styles.stickyTop}>
+        <TotalCostCard />
 
-      <div className={styles.divider} />
+        <button
+          className={styles.toggleSection}
+          onClick={() => setShowKeys(!showKeys)}
+        >
+          <span>Connection Details</span>
+          <span className={`${styles.chevron} ${showKeys ? styles.chevronOpen : ''}`}>▶</span>
+        </button>
 
-      <button
-        className={styles.toggleSection}
-        onClick={() => setShowKeys(!showKeys)}
-      >
-        <span>Connection Details</span>
-        <span className={`${styles.chevron} ${showKeys ? styles.chevronOpen : ''}`}>▶</span>
-      </button>
+        {showKeys && <ConnectionDetails />}
 
-      {showKeys && (
-        <>
-          <ConnectionDetails />
-          <div className={styles.divider} />
-        </>
-      )}
+        <button
+          className={styles.toggleSection}
+          onClick={() => setShowProviderKeys(!showProviderKeys)}
+        >
+          <span>Provider API Keys</span>
+          <span className={`${styles.chevron} ${showProviderKeys ? styles.chevronOpen : ''}`}>▶</span>
+        </button>
 
-      <button
-        className={styles.toggleSection}
-        onClick={() => setShowProviderKeys(!showProviderKeys)}
-      >
-        <span>Provider API Keys</span>
-        <span className={`${styles.chevron} ${showProviderKeys ? styles.chevronOpen : ''}`}>▶</span>
-      </button>
-
-      {showProviderKeys && (
-        <>
-          <ProviderKeys />
-          <div className={styles.divider} />
-        </>
-      )}
-
-      <span className={styles.sectionTitle}>Agent Breakdown</span>
-
-      <div className={`${styles.agentCards} stagger-children`}>
-        {departments.map((dept) =>
-          dept.agents.map((agent) => (
-            <AgentCostCard
-              key={agent.id}
-              agent={agent}
-              department={dept}
-            />
-          ))
-        )}
+        {showProviderKeys && <ProviderKeys />}
       </div>
 
-      <div className={styles.divider} />
+      <div className={styles.scrollArea}>
+        <span className={styles.sectionTitle}>Agent Breakdown</span>
 
-      <GatewayLogs />
+        <div className={`${styles.agentCards} stagger-children`}>
+          {departments.map((dept) =>
+            dept.agents.map((agent) => (
+              <AgentCostCard
+                key={agent.id}
+                agent={agent}
+                department={dept}
+              />
+            ))
+          )}
+        </div>
 
-      <div className={styles.divider} />
+        <div className={styles.divider} />
 
-      <div className={styles.exportRow}>
-        <ExportButton />
-        <ImportButton />
+        <GatewayLogs />
+
+        <div className={styles.divider} />
+
+        <div className={styles.exportRow}>
+          <ExportButton />
+          <ImportButton />
+        </div>
       </div>
     </aside>
   );
