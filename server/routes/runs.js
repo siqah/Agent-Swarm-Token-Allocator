@@ -130,9 +130,8 @@ router.get('/runs', (req, res) => {
   res.status(200).json({ runs: allRuns });
 });
 
-// GET /api/cost/:runId — cost breakdown for a run
-router.get('/cost/:runId', (req, res) => {
-  const runId = parseInt(req.params.runId, 10);
+function costBreakpointHandler(req, res) {
+  const runId = parseInt(req.params.runId || req.params.sessionId, 10);
   const run = getRun(runId);
   if (!run) {
     return res.status(404).json({
@@ -158,6 +157,9 @@ router.get('/cost/:runId', (req, res) => {
     totalCost: run.totalCost,
     breakdown,
   });
-});
+}
+
+router.get('/cost/:runId', costBreakpointHandler);
+router.get('/cost/session/:sessionId', costBreakpointHandler);
 
 export default router;

@@ -15,20 +15,15 @@
     "test:server": "npm test --prefix server",
     "test:all": "npm test --prefix server && vitest run --config vitest.config.js",
     "start": "vite preview --port 4173",
-    "docker:build": "docker compose build",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down",
     "ci": "npm run lint && npm run build && npm test"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@xyflow/react": "^12.11.2",
-    "clsx": "^2.1.1",
     "lucide-react": "^1.25.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "recharts": "^3.9.2",
-    "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {

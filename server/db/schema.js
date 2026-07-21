@@ -1,6 +1,17 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
+// ── Agents ────────────────────────────────────
+export const agents = sqliteTable('agents', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  workflowId: integer('workflow_id').notNull().references(() => workflows.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  model: text('model').notNull().default('gpt-5.6-terra'),
+  systemPrompt: text('system_prompt').default(''),
+  temperature: real('temperature').default(0.7),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+});
+
 // ── Workflows ────────────────────────────────
 export const workflows = sqliteTable('workflows', {
   id: integer('id').primaryKey({ autoIncrement: true }),

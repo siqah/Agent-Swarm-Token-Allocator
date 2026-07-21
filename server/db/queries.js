@@ -4,7 +4,7 @@ import { getDb, getSqlite } from './index.js';
 import {
   config, users, swarmKeys, providerKeys,
   models, fallbackChains, usage, auditLog,
-  workflows, runs, runLogs,
+  workflows, runs, runLogs, agents,
 } from './schema.js';
 import { encrypt, decrypt, isEncrypted } from '../lib/encrypt.js';
 import { logger } from '../lib/logger.js';
@@ -454,6 +454,39 @@ export function deleteWorkflow(id) {
   if (!existing) return false;
   db.delete(workflows).where(eq(workflows.id, id)).run();
   return true;
+}
+
+// ── Agents (extracted from workflow graphs) ───
+
+export function saveAgentsForWorkflow(workflowId, nodes) {
+  const db = getDb();
+  db.delete(agents).where(eq(agents.workflowId, workflowId)).run();
+  if (!nodes || nodes.length === 0) return [];
+  const inserted = [];
+  for (const node of nodes) {
+    const data = node.data || {};
+    db.insert(agents).values({
+      workflowId,
+      name: data.name || node.id,
+      model: data.model || 'gpt-5.6-terra',
+      systemPrompt: data.systemPrompt || '',
+      temperature: data.temperature != null ? data.temperature : 0.7,
+    }).run();
+    inserted.push({
+      workflowId,
+      nodeId: node.id,
+      name: data.name || node.id,
+      model: data.model || 'gpt-5.6-terra',
+      systemPrompt: data.systemPrompt || '',
+      temperature: data.temperature != null ? data.temperature : 0.7,
+    });
+  }
+  return inserted;
+}
+
+export function getAgentsByWorkflowId(workflowId) {
+  const db = getDb();
+  return db.select().from(agents).where(eq(agents.workflowId, workflowId)).all();
 }
 
 // ── Runs ─────────────────────────────────────

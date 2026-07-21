@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   createWorkflow, getWorkflow, listWorkflows,
   updateWorkflow, deleteWorkflow, appendAuditLog,
+  saveAgentsForWorkflow, getAgentsByWorkflowId,
 } from '../db/queries.js';
 import { validateGraph } from '../engine/graph.js';
 
@@ -31,8 +32,9 @@ router.post('/workflows', async (req, res, next) => {
     }
 
     const workflow = createWorkflow(name, graphJson);
+    const agentList = saveAgentsForWorkflow(workflow.id, graphJson.nodes || []);
     appendAuditLog({ action: 'workflow_created', workflowId: workflow.id, name });
-    res.status(201).json({ success: true, workflow });
+    res.status(201).json({ success: true, workflow, agents: agentList });
   } catch (err) {
     next(err);
   }
@@ -58,11 +60,13 @@ router.get('/workflows/:id', (req, res) => {
       error: { message: 'Workflow not found.', type: 'not_found', code: 'not_found' }
     });
   }
+  const agentList = getAgentsByWorkflowId(id);
   res.status(200).json({
     workflow: {
       ...workflow,
       graphJson: typeof workflow.graphJson === 'string' ? JSON.parse(workflow.graphJson) : workflow.graphJson,
     },
+    agents: agentList,
   });
 });
 
@@ -93,6 +97,8 @@ router.put('/workflows/:id', async (req, res, next) => {
       });
     }
 
+    const graphData = graph || (typeof updated.graphJson === 'string' ? JSON.parse(updated.graphJson) : updated.graphJson);
+    const agentList = saveAgentsForWorkflow(id, graphData.nodes || []);
     appendAuditLog({ action: 'workflow_updated', workflowId: id });
     res.status(200).json({
       success: true,
@@ -100,6 +106,7 @@ router.put('/workflows/:id', async (req, res, next) => {
         ...updated,
         graphJson: typeof updated.graphJson === 'string' ? JSON.parse(updated.graphJson) : updated.graphJson,
       },
+      agents: agentList,
     });
   } catch (err) {
     next(err);

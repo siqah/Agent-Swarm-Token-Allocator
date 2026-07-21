@@ -1,38 +1,35 @@
 @import "tailwindcss";
 
-/* ── Custom Theme ─────────────────────────── */
 @theme {
-  --color-background: oklch(0.08 0.01 260);
-  --color-surface: oklch(0.12 0.01 260);
-  --color-elevated: oklch(0.16 0.012 260);
-  --color-hover: oklch(0.20 0.015 260);
-  --color-border: oklch(1 0 0 / 0.08);
-  --color-border-strong: oklch(1 0 0 / 0.12);
+  --color-background: oklch(0.09 0.006 260);
+  --color-surface: oklch(0.13 0.008 260);
+  --color-elevated: oklch(0.17 0.01 260);
+  --color-hover: oklch(0.21 0.012 260);
+  --color-border: oklch(1 0 0 / 0.07);
+  --color-border-strong: oklch(1 0 0 / 0.11);
 
-  --color-foreground: oklch(0.96 0.005 260);
-  --color-muted: oklch(0.52 0.01 260);
-  --color-muted-foreground: oklch(0.74 0.008 260);
+  --color-foreground: oklch(0.95 0.004 260);
+  --color-muted: oklch(0.50 0.008 260);
+  --color-muted-foreground: oklch(0.72 0.006 260);
 
-  --color-primary: oklch(0.75 0.15 200);
-  --color-primary-foreground: oklch(0.08 0.01 260);
-  --color-accent: oklch(0.72 0.18 300);
-  --color-accent-foreground: oklch(0.96 0.005 260);
+  --color-primary: oklch(0.72 0.14 200);
+  --color-primary-foreground: oklch(0.09 0.006 260);
+  --color-accent: oklch(0.68 0.16 280);
+  --color-accent-foreground: oklch(0.95 0.004 260);
 
-  --color-success: oklch(0.78 0.17 150);
-  --color-warning: oklch(0.82 0.18 80);
-  --color-danger: oklch(0.65 0.25 25);
+  --color-success: oklch(0.72 0.16 150);
+  --color-warning: oklch(0.78 0.17 80);
+  --color-danger: oklch(0.62 0.22 25);
 
-  /* Provider colors */
-  --color-openai: oklch(0.78 0.17 150);
-  --color-anthropic: oklch(0.76 0.16 50);
-  --color-google: oklch(0.72 0.15 250);
-  --color-groq: oklch(0.75 0.18 300);
+  --color-openai: oklch(0.72 0.16 150);
+  --color-anthropic: oklch(0.70 0.14 50);
+  --color-google: oklch(0.68 0.13 250);
+  --color-groq: oklch(0.70 0.16 280);
 
-  /* Node status */
-  --color-node-pending: oklch(0.52 0.01 260);
-  --color-node-running: oklch(0.75 0.15 200);
-  --color-node-completed: oklch(0.78 0.17 150);
-  --color-node-error: oklch(0.65 0.25 25);
+  --color-node-pending: oklch(0.50 0.008 260);
+  --color-node-running: oklch(0.72 0.14 200);
+  --color-node-completed: oklch(0.72 0.16 150);
+  --color-node-error: oklch(0.62 0.22 25);
 
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -41,9 +38,16 @@
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
   --radius-xl: 1rem;
+
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 300;
+  --z-modal-backdrop: 400;
+  --z-modal: 500;
+  --z-toast: 600;
+  --z-tooltip: 700;
 }
 
-/* ── Base styles ──────────────────────────── */
 * {
   box-sizing: border-box;
 }
@@ -60,22 +64,23 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-/* ── Scrollbar ────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: oklch(1 0 0 / 0.1);
-  border-radius: 3px;
+  background: oklch(1 0 0 / 0.08);
+  border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(1 0 0 / 0.2);
+  background: oklch(1 0 0 / 0.15);
 }
 
 /* ── React Flow overrides ─────────────────── */
@@ -86,14 +91,16 @@ body {
 .react-flow__controls {
   background: var(--color-surface) !important;
   border: 1px solid var(--color-border) !important;
-  border-radius: var(--radius-lg) !important;
-  box-shadow: 0 4px 16px oklch(0 0 0 / 0.3) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: 0 2px 8px oklch(0 0 0 / 0.3) !important;
 }
 
 .react-flow__controls-button {
   background: var(--color-surface) !important;
   border-color: var(--color-border) !important;
   fill: var(--color-muted-foreground) !important;
+  width: 28px !important;
+  height: 28px !important;
 }
 
 .react-flow__controls-button:hover {
@@ -109,23 +116,98 @@ body {
 .react-flow__minimap {
   background: var(--color-surface) !important;
   border: 1px solid var(--color-border) !important;
-  border-radius: var(--radius-lg) !important;
+  border-radius: var(--radius-md) !important;
 }
 
-/* ── Animation keyframes ──────────────────── */
-@keyframes pulse-glow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+/* ── Form controls ────────────────────────── */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  height: 1.25rem;
 }
 
-@keyframes slide-in-right {
-  from { transform: translateX(100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: oklch(1 0 0 / 0.1);
 }
 
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  border: 2px solid var(--color-background);
+  margin-top: -5px;
+  transition: transform 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: oklch(1 0 0 / 0.1);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  border: 2px solid var(--color-background);
+}
+
+input[type="text"],
+input[type="search"],
+input[type="email"],
+input[type="password"],
+select,
+textarea {
+  background-color: oklch(1 0 0 / 0.04);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--color-foreground);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="text"]:focus,
+input[type="search"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px oklch(from var(--color-primary) l c h / 0.15);
+}
+
+select {
+  cursor: pointer;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 5rem;
+}
+
+/* ── Animations ───────────────────────────── */
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes spin-slow {
@@ -133,7 +215,20 @@ body {
   to { transform: rotate(360deg); }
 }
 
-.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
-.animate-slide-in { animation: slide-in-right 0.3s ease-out; }
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 .animate-fade-in { animation: fade-in 0.2s ease-out; }
+.animate-slide-up { animation: slide-up 0.2s ease-out; }
 .animate-spin-slow { animation: spin-slow 1.5s linear infinite; }
+.animate-pulse-subtle { animation: pulse-subtle 2s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

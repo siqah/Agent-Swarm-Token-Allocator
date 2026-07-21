@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useNodesState, useEdgesState } from '@xyflow/react';
-import { Play, Save, FolderOpen, PieChart, Layers, Sparkles, Loader2, Check } from 'lucide-react';
+import { Play, Save, FolderOpen, PieChart, Layers, Loader2, Check } from 'lucide-react';
 import { WorkflowProvider, useWorkflow } from './context/WorkflowContext';
 import AgentLibrary from './components/canvas/AgentLibrary';
 import WorkflowCanvas from './components/canvas/WorkflowCanvas';
@@ -54,7 +54,7 @@ function PlannerDashboard() {
   const [selectedNode, setSelectedNode] = useState(null);
   const [workflowName, setWorkflowName] = useState('New Agent Swarm Workflow');
   const [showCostDashboard, setShowCostDashboard] = useState(true);
-  const [activeRightTab, setActiveRightTab] = useState('inspector'); // 'config' | 'inspector'
+  const [activeRightTab, setActiveRightTab] = useState('inspector');
   const [isSaved, setIsSaved] = useState(false);
 
   const {
@@ -69,7 +69,6 @@ function PlannerDashboard() {
     executeRun,
   } = useWorkflow();
 
-  // Helper to update node status during execution
   const updateNodeStatus = useCallback((nodeId, status, tokens) => {
     setNodes((nds) =>
       nds.map((n) =>
@@ -87,13 +86,11 @@ function PlannerDashboard() {
     );
   }, [setNodes]);
 
-  // Handle Node selection
   const handleSelectNode = useCallback((node) => {
     setSelectedNode(node);
     if (node) setActiveRightTab('config');
   }, []);
 
-  // Update Node Data from config panel
   const handleUpdateNode = useCallback((nodeId, newData) => {
     setNodes((nds) =>
       nds.map((n) => (n.id === nodeId ? { ...n, data: newData } : n))
@@ -101,14 +98,12 @@ function PlannerDashboard() {
     setSelectedNode((prev) => (prev?.id === nodeId ? { ...prev, data: newData } : prev));
   }, [setNodes]);
 
-  // Delete Node
   const handleDeleteNode = useCallback((nodeId) => {
     setNodes((nds) => nds.filter((n) => n.id !== nodeId));
     setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
     setSelectedNode(null);
   }, [setNodes, setEdges]);
 
-  // Handle Save
   const handleSave = async () => {
     const graph = {
       nodes: nodes.map((n) => ({
@@ -129,7 +124,6 @@ function PlannerDashboard() {
     setTimeout(() => setIsSaved(false), 2000);
   };
 
-  // Load selected workflow
   const handleLoadWorkflow = (wfId) => {
     const wf = workflows.find((w) => w.id === parseInt(wfId, 10));
     if (!wf) return;
@@ -143,9 +137,7 @@ function PlannerDashboard() {
     setSelectedNode(null);
   };
 
-  // Handle Run Execution
   const handleRun = async () => {
-    // Reset node statuses
     setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, status: 'pending', tokens: 0 } })));
     setActiveRightTab('inspector');
 
@@ -166,37 +158,53 @@ function PlannerDashboard() {
     await executeRun(graph, updateNodeStatus);
   };
 
+  const rightPanel = useMemo(() => {
+    if (activeRightTab === 'config' && selectedNode) {
+      return (
+        <AgentConfigPanel
+          selectedNode={selectedNode}
+          onUpdateNode={handleUpdateNode}
+          onDeleteNode={handleDeleteNode}
+          onClose={() => setSelectedNode(null)}
+        />
+      );
+    }
+    return (
+      <RunInspector
+        runState={runState}
+        runLogs={runLogs}
+        isRunning={isRunning}
+      />
+    );
+  }, [activeRightTab, selectedNode, handleUpdateNode, handleDeleteNode, runState, runLogs, isRunning]);
+
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 font-sans">
-      {/* Top Header Navigation */}
-      <header className="h-14 border-b border-slate-800 bg-slate-900 px-4 flex items-center justify-between z-10 shrink-0">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground font-sans">
+      <header className="h-12 border-b border-border bg-surface px-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-cyan-400 font-bold tracking-wide">
-            <Layers className="w-5 h-5" />
-            <span className="text-sm">SWARM GATEWAY</span>
+          <div className="flex items-center gap-2 text-primary font-semibold tracking-wide">
+            <Layers className="w-4 h-4" />
+            <span className="text-sm">Swarm Gateway</span>
           </div>
 
-          <span className="text-slate-700">|</span>
+          <span className="text-border-strong w-px h-4 bg-current opacity-30" />
 
-          {/* Workflow Title Input */}
           <input
             type="text"
             value={workflowName}
             onChange={(e) => setWorkflowName(e.target.value)}
-            className="bg-transparent text-sm font-medium text-slate-200 focus:outline-none focus:bg-slate-800/60 px-2 py-1 rounded transition-colors"
+            className="bg-transparent text-sm font-medium text-foreground focus:outline-none focus:bg-hover px-2 py-1 rounded transition-colors"
           />
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center gap-3">
-          {/* Workflow Selector */}
+        <div className="flex items-center gap-2">
           {workflows.length > 0 && (
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <FolderOpen className="w-3.5 h-3.5" />
               <select
                 onChange={(e) => handleLoadWorkflow(e.target.value)}
                 value={currentWorkflow?.id || ''}
-                className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
+                className="bg-elevated border border-border rounded px-2 py-1 text-xs text-foreground"
               >
                 <option value="" disabled>Load Workflow...</option>
                 {workflows.map((w) => (
@@ -208,58 +216,52 @@ function PlannerDashboard() {
             </div>
           )}
 
-          {/* Save Button */}
           <button
             onClick={handleSave}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 bg-elevated hover:bg-hover text-foreground border border-border px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors"
           >
-            {isSaved ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Save className="w-3.5 h-3.5" />}
+            {isSaved ? <Check className="w-3.5 h-3.5 text-success" /> : <Save className="w-3.5 h-3.5" />}
             {isSaved ? 'Saved' : 'Save'}
           </button>
 
-          {/* Run Button */}
           <button
             onClick={handleRun}
             disabled={isRunning || nodes.length === 0}
-            className="flex items-center gap-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 text-slate-950 font-bold px-4 py-1.5 rounded-lg text-xs transition-all shadow-lg shadow-cyan-500/20"
+            className="flex items-center gap-1.5 bg-primary text-primary-foreground hover:brightness-110 disabled:opacity-40 font-semibold px-3 py-1.5 rounded-md text-xs transition-all"
           >
             {isRunning ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Executing...
+                Executing
               </>
             ) : (
               <>
                 <Play className="w-3.5 h-3.5 fill-current" />
-                Run Workflow
+                Run
               </>
             )}
           </button>
 
-          <span className="text-slate-700">|</span>
+          <span className="text-border-strong w-px h-4 bg-current opacity-30" />
 
-          {/* Toggle Cost Panel */}
           <button
             onClick={() => setShowCostDashboard((prev) => !prev)}
-            className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition-colors ${
+            className={`p-1.5 rounded-md border text-xs flex items-center gap-1.5 transition-colors ${
               showCostDashboard
-                ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'
-                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+                ? 'bg-primary/10 border-primary/30 text-primary'
+                : 'bg-elevated border-border text-muted-foreground hover:text-foreground'
             }`}
             title="Toggle Token Cost Dashboard"
           >
-            <PieChart className="w-4 h-4" />
-            <span className="hidden sm:inline font-mono">${sessionCost.toFixed(3)}</span>
+            <PieChart className="w-3.5 h-3.5" />
+            <span className="font-mono text-[11px]">${sessionCost.toFixed(4)}</span>
           </button>
         </div>
       </header>
 
-      {/* Main Studio Body */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Agent Library Sidebar */}
         <AgentLibrary />
 
-        {/* Interactive React Flow Canvas */}
         <WorkflowCanvas
           nodes={nodes}
           edges={edges}
@@ -270,24 +272,9 @@ function PlannerDashboard() {
           onSelectNode={handleSelectNode}
         />
 
-        {/* Right Sidebar: Config Panel or Inspector */}
-        {activeRightTab === 'config' && selectedNode ? (
-          <AgentConfigPanel
-            selectedNode={selectedNode}
-            onUpdateNode={handleUpdateNode}
-            onDeleteNode={handleDeleteNode}
-            onClose={() => setSelectedNode(null)}
-          />
-        ) : (
-          <RunInspector
-            runState={runState}
-            runLogs={runLogs}
-            isRunning={isRunning}
-          />
-        )}
+        {rightPanel}
       </div>
 
-      {/* Bottom Collapsible Cost Dashboard */}
       {showCostDashboard && (
         <CostDashboard
           runLogs={runLogs}

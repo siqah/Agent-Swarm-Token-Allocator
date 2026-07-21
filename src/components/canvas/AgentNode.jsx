@@ -11,11 +11,11 @@ const ICON_MAP = {
   Bot,
 };
 
-const PROVIDER_COLORS = {
-  openai: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400', badge: 'bg-emerald-500/20 text-emerald-300' },
-  anthropic: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', text: 'text-amber-400', badge: 'bg-amber-500/20 text-amber-300' },
-  google: { bg: 'bg-blue-500/10', border: 'border-blue-500/30', text: 'text-blue-400', badge: 'bg-blue-500/20 text-blue-300' },
-  groq: { bg: 'bg-purple-500/10', border: 'border-purple-500/30', text: 'text-purple-400', badge: 'bg-purple-500/20 text-purple-300' },
+const PROVIDER_STYLES = {
+  openai: { icon: 'text-emerald-400', badge: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' },
+  anthropic: { icon: 'text-amber-400', badge: 'bg-amber-500/10 text-amber-300 border-amber-500/20' },
+  google: { icon: 'text-blue-400', badge: 'bg-blue-500/10 text-blue-300 border-blue-500/20' },
+  groq: { icon: 'text-purple-400', badge: 'bg-purple-500/10 text-purple-300 border-purple-500/20' },
 };
 
 function getProvider(modelName = '') {
@@ -29,68 +29,65 @@ function getProvider(modelName = '') {
 function AgentNode({ data, selected }) {
   const IconComponent = ICON_MAP[data.icon] || Bot;
   const provider = getProvider(data.model);
-  const colorTheme = PROVIDER_COLORS[provider] || PROVIDER_COLORS.openai;
-
+  const theme = PROVIDER_STYLES[provider] || PROVIDER_STYLES.openai;
   const status = data.status || 'idle';
 
   return (
     <div
-      className={`relative min-w-[220px] rounded-xl border p-4 shadow-lg backdrop-blur-md transition-all duration-200 ${
-        selected ? 'border-cyan-400 ring-2 ring-cyan-400/20 shadow-cyan-500/10' : colorTheme.border
-      } bg-slate-900/90 text-slate-100 hover:border-slate-500`}
+      className={`relative min-w-[200px] rounded-lg border bg-elevated/90 text-foreground transition-all duration-200 ${
+        selected
+          ? 'border-primary ring-1 ring-primary/20'
+          : 'border-border hover:border-foreground/20'
+      }`}
     >
-      {/* Input Handle */}
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-3 !w-3 !bg-cyan-400 !border-2 !border-slate-900 hover:scale-125 transition-transform"
+        className="!h-2.5 !w-2.5 !bg-primary !border-2 !border-background hover:scale-125 transition-transform"
       />
 
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <div className={`p-2 rounded-lg ${colorTheme.bg} ${colorTheme.text}`}>
-          <IconComponent className="w-4 h-4" />
+      <div className="p-3">
+        <div className="flex items-center gap-2.5 mb-2">
+          <div className={`${theme.icon}`}>
+            <IconComponent className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-semibold truncate leading-tight">
+              {data.name || 'Agent'}
+            </h3>
+            <span className="text-[10px] text-muted-foreground font-mono">
+              T: {data.temperature ?? 0.7}
+            </span>
+          </div>
+
+          {status === 'running' && <Loader2 className="w-3.5 h-3.5 text-primary animate-spin shrink-0" />}
+          {status === 'completed' && <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />}
+          {status === 'failed' && <XCircle className="w-3.5 h-3.5 text-danger shrink-0" />}
+          {status === 'pending' && <Clock className="w-3.5 h-3.5 text-warning animate-pulse-subtle shrink-0" />}
         </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold truncate text-slate-100 leading-tight">
-            {data.name || 'Agent'}
-          </h3>
-          <span className="text-[10px] text-slate-400 font-mono block">
-            T: {data.temperature ?? 0.7}
-          </span>
-        </div>
 
-        {/* Status Indicator */}
-        {status === 'running' && <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />}
-        {status === 'completed' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-        {status === 'failed' && <XCircle className="w-4 h-4 text-rose-400" />}
-        {status === 'pending' && <Clock className="w-4 h-4 text-amber-400 animate-pulse" />}
-      </div>
-
-      {/* System Prompt snippet */}
-      {data.systemPrompt && (
-        <p className="text-[11px] text-slate-400 line-clamp-2 mb-3 font-sans leading-relaxed bg-slate-950/50 p-1.5 rounded border border-slate-800/60">
-          {data.systemPrompt}
-        </p>
-      )}
-
-      {/* Footer / Badges */}
-      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/60 text-[10px]">
-        <span className={`px-2 py-0.5 rounded font-mono font-medium ${colorTheme.badge}`}>
-          {data.model || 'gpt-5.6-terra'}
-        </span>
-        {data.tokens > 0 && (
-          <span className="text-slate-400 font-mono">
-            {data.tokens} tk
-          </span>
+        {data.systemPrompt && (
+          <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed mb-2 bg-background/50 p-2 rounded border border-border">
+            {data.systemPrompt}
+          </p>
         )}
+
+        <div className="flex items-center justify-between pt-1.5 border-t border-border">
+          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${theme.badge}`}>
+            {data.model || 'gpt-5.6-terra'}
+          </span>
+          {data.tokens > 0 && (
+            <span className="text-[10px] text-muted-foreground font-mono">
+              {data.tokens} tk
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Output Handle */}
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-3 !w-3 !bg-cyan-400 !border-2 !border-slate-900 hover:scale-125 transition-transform"
+        className="!h-2.5 !w-2.5 !bg-primary !border-2 !border-background hover:scale-125 transition-transform"
       />
     </div>
   );
