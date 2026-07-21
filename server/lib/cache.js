@@ -5,14 +5,14 @@ const SIMILARITY_THRESHOLD = parseFloat(process.env.CACHE_SIMILARITY_THRESHOLD) 
 const MAX_SEMANTIC_ENTRIES = parseInt(process.env.CACHE_MAX_ENTRIES, 10) || 500;
 const EXACT_TTL_MS = parseInt(process.env.CACHE_EXACT_TTL_MS, 10) || 300_000;
 const SEMANTIC_TTL_MS = parseInt(process.env.CACHE_SEMANTIC_TTL_MS, 10) || 600_000;
+const MAX_RESPONSE_SIZE = parseInt(process.env.CACHE_MAX_RESPONSE_SIZE, 10) || 100_000;
 
-// ── Exact-match store ───────────────────────
 const exactStore = new Map();
-// ── Semantic store (embedding → response) ───
 const semanticStore = [];
 
+let cleanupTimer = null;
+
 function embed(text) {
-  // Character tri-gram frequency vector for lightweight semantic similarity
   const grams = {};
   for (let i = 0; i < text.length - 2; i++) {
     const g = text.slice(i, i + 3);
@@ -44,20 +44,36 @@ function makeExactKey(model, messages) {
   return crypto.createHash('md5').update(text).digest('hex');
 }
 
-// Periodic cleanup
-const CLEANUP_INTERVAL = 60_000;
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of exactStore) {
-    if (now - entry.ts > EXACT_TTL_MS) exactStore.delete(key);
+function responseSize(response) {
+  try {
+    return Buffer.byteLength(JSON.stringify(response), 'utf8');
+  } catch {
+    return 0;
   }
-  while (semanticStore.length > 0 && semanticStore[0] && (now - semanticStore[0].ts > SEMANTIC_TTL_MS)) {
-    semanticStore.shift();
+}
+
+function startCleanup() {
+  if (cleanupTimer) return;
+  cleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of exactStore) {
+      if (now - entry.ts > EXACT_TTL_MS) exactStore.delete(key);
+    }
+    while (semanticStore.length > 0 && semanticStore[0] && (now - semanticStore[0].ts > SEMANTIC_TTL_MS)) {
+      semanticStore.shift();
+    }
+  }, 60_000);
+  cleanupTimer.unref();
+}
+
+function stopCleanup() {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
   }
-}, CLEANUP_INTERVAL).unref();
+}
 
 export function checkCache(model, messages) {
-  // 1. Exact match
   const exactKey = makeExactKey(model, messages);
   const exact = exactStore.get(exactKey);
   if (exact && (Date.now() - exact.ts < EXACT_TTL_MS)) {
@@ -65,7 +81,6 @@ export function checkCache(model, messages) {
     return { hit: true, type: 'exact', response: exact.response };
   }
 
-  // 2. Semantic match
   const text = normalizeMessages(messages);
   const queryVec = embed(text);
 
@@ -83,11 +98,14 @@ export function checkCache(model, messages) {
 }
 
 export function setCache(model, messages, response) {
-  // 1. Exact
+  if (responseSize(response) > MAX_RESPONSE_SIZE) {
+    logger.warn(`[Cache] Response too large (${responseSize(response)} bytes), skipping cache for ${model}`);
+    return;
+  }
+
   const exactKey = makeExactKey(model, messages);
   exactStore.set(exactKey, { response, ts: Date.now() });
 
-  // 2. Semantic (trim if over limit)
   const text = normalizeMessages(messages);
   const embedding = embed(text);
   semanticStore.push({ model, embedding, response, ts: Date.now() });
@@ -95,13 +113,20 @@ export function setCache(model, messages, response) {
   if (semanticStore.length > MAX_SEMANTIC_ENTRIES) {
     semanticStore.splice(0, semanticStore.length - MAX_SEMANTIC_ENTRIES);
   }
+
+  startCleanup();
 }
 
 export function clearCache() {
   exactStore.clear();
   semanticStore.length = 0;
+  stopCleanup();
 }
 
 export function getCacheStats() {
   return { exactSize: exactStore.size, semanticSize: semanticStore.length, threshold: SIMILARITY_THRESHOLD };
+}
+
+export function getCacheCleanup() {
+  return { start: startCleanup, stop: stopCleanup };
 }

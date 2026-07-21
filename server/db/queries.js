@@ -1,13 +1,12 @@
-import { eq, desc, asc, and, sql } from 'drizzle-orm';
+import { eq, desc, asc, and } from 'drizzle-orm';
 import crypto from 'crypto';
-import { getDb, getSqlite } from './index.js';
+import { getDb } from './index.js';
 import {
   config, users, swarmKeys, providerKeys,
   models, fallbackChains, usage, auditLog,
   workflows, runs, runLogs, agents,
 } from './schema.js';
-import { encrypt, decrypt, isEncrypted } from '../lib/encrypt.js';
-import { logger } from '../lib/logger.js';
+import { encrypt, decrypt } from '../lib/encrypt.js';
 
 // ── Config helpers ───────────────────────────
 
@@ -253,7 +252,6 @@ export function setProviderKey(providerName, key) {
 
 export function removeProviderKey(providerName, key) {
   const db = getDb();
-  const encrypted = encrypt(key);
   const rows = db.select().from(providerKeys)
     .where(eq(providerKeys.providerName, providerName)).all();
   const target = rows.find(r => {

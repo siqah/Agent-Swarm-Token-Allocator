@@ -1,40 +1,61 @@
-# LLM Gateway & Agent Swarm Visual Planner
+# Agent Swarm Token Allocator
 
-An LLM Gateway with a drag-and-drop Visual Planner canvas (React Flow), agent swarm DAG orchestration engine, and real-time token cost control.
+A self-hosted **LLM gateway + multi-agent orchestrator + cost control plane** — one box that routes, budgets, and visualises every LLM call across your agent fleet.
 
 ```
-Planner Canvas (React Flow) → DAG Executor (Topological Sort + Parallel Level Execution) → Gateway Proxy → OpenAI / Anthropic / Google / Groq
-                                                                                               ↑
-Real-Time SSE Output Streaming & Cost Breakdown Dashboard ─────────────────────────────────────┘
+Planner Canvas (React Flow) → DAG Executor → Gateway Proxy → OpenAI / Anthropic / Google / Groq
+                                                              ↑
+Real-Time SSE Output Streaming & Cost Dashboard ─────────────┘
 ```
 
-## Features
+## What it solves
 
-- **Visual Planner Canvas**: Drag & drop agent nodes from the template library, connect with edges to create DAG workflows, configure system prompts, model choice, and temperature sliders. Save & load workflows as JSON in SQLite.
-- **Agent Swarm Orchestration Engine**: Executes workflow graphs in topological order using Kahn's algorithm, passes previous agent outputs as context to downstream agents, supports parallel execution for independent branching paths, and streams real-time SSE outputs to the UI.
-- **Token Cost Breakdown Dashboard**: Tracks tokens per agent and per workflow run, displays cost breakdown by model with visual Recharts bar & pie charts, shows cumulative session cost, and sets per-agent budget alerts (e.g. 80% warning threshold).
-- **Multi-Provider LLM Gateway Proxy**: OpenAI-compatible `/v1/chat/completions` proxy routing across OpenAI, Anthropic, Google, and Groq, with semantic caching, rate limiting, and fallback chains.
+| Problem | Solution |
+|---|---|
+| **No per-agent budget control** | Set token budgets per agent, enforce them in real-time (429 when exhausted) |
+| **Provider lock-in** | One endpoint → GPT → Claude → Gemini → Groq fallback chain. Load-balanced across keys. |
+| **Key sprawl** | Virtual swarm keys decouple agents from provider keys. Rotate in one place. |
+| **No observability** | Live cost breakdowns, token usage charts, per-run agent logs |
+| **No multi-agent orchestration** | Visual DAG editor to chain agents, pass outputs, run parallel branches |
 
 ## Quick Start
 
 ```bash
-# Terminal 1: Backend API
-cd server
-npm install
-npm start                       # Running at :3001
+# Terminal 1: Backend (port 3001)
+cd server && npm install && npm start
 
-# Terminal 2: Frontend UI
-npm install
-npm run dev                     # Running at :5173
+# Terminal 2: Frontend (port 5173)
+cd .. && npm install && npm run dev
 ```
 
-Open `http://localhost:5173` to launch the Planner UI & Canvas.
+Open `http://localhost:5173`. Everything works in **mock mode** — no API keys needed.
 
-## Database Schema (SQLite + Drizzle ORM)
+## Features
 
-- `workflows`: `id`, `name`, `graph_json`, `created_at`, `updated_at`
-- `runs`: `id`, `workflow_id`, `status`, `total_tokens`, `total_cost`, `started_at`, `completed_at`
-- `run_logs`: `id`, `run_id`, `agent_node_id`, `agent_name`, `model`, `system_prompt`, `input_tokens`, `output_tokens`, `total_tokens`, `cost`, `response_text`, `status`, `error_message`
+- **Visual DAG Planner** — Drag agents onto a React Flow canvas, connect them into pipelines, configure prompts/models/temperature. Save & load workflows to SQLite.
+- **Swarm Execution Engine** — Runs workflow graphs in topological order (Kahn's algorithm), passes outputs between agents, supports parallel branches, streams results via SSE.
+- **Cost Dashboard** — Per-agent token breakdown, model-level bar/pie charts, cumulative session cost, budget threshold alerts.
+- **Multi-Provider Proxy** — OpenAI-compatible `/v1/chat/completions` endpoint routing across OpenAI, Anthropic, Google, and Groq with semantic caching, rate limiting, and fallback chains.
+- **Provider Key Management** — Add/rotate/remove provider keys via UI or API. Mock mode falls back automatically when no keys are set.
+
+## Quick Links
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/chat/completions` | OpenAI-compatible proxy |
+| `POST /v1/swarm/task` | Auto-classify and route prompts |
+| `GET /api/workflows` | Saved DAG workflows |
+| `GET /api/runs` | Execution history |
+| `GET /api/cost/session/:sessionId` | Session token cost |
+| `GET /api/providers` | Provider & key status |
+
+## Tech Stack
+
+| Layer | Stack |
+|---|---|
+| Frontend | React 19, Vite, Tailwind v4, React Flow, Recharts |
+| Backend | Express, better-sqlite3, Drizzle ORM |
+| AI Providers | OpenAI, Anthropic, Google, Groq (mock mode by default) |
 
 ## License
 

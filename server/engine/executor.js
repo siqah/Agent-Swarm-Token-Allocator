@@ -7,7 +7,7 @@
 
 import { parseGraph, getExecutionLevels, getPredecessors } from './graph.js';
 import {
-  createRun, updateRun, createRunLog, updateRunLog, getRunLogs,
+  createRun, updateRun, createRunLog, updateRunLog,
 } from '../db/queries.js';
 import { logger } from '../lib/logger.js';
 

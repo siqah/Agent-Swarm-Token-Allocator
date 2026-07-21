@@ -1,5 +1,4 @@
 import { config, models, fallbackChains, usage } from './schema.js';
-import { eq } from 'drizzle-orm';
 import { logger } from '../lib/logger.js';
 
 const DEFAULT_CONFIG = {

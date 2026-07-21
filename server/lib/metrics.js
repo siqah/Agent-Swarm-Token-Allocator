@@ -1,5 +1,3 @@
-import { logger } from './logger.js';
-
 const metrics = {
   http_requests_total: 0,
   http_requests_active: 0,

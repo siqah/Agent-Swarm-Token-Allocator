@@ -159,6 +159,7 @@ export function WorkflowProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react/only-export-components
 export function useWorkflow() {
   const ctx = useContext(WorkflowContext);
   if (!ctx) throw new Error('useWorkflow must be used within WorkflowProvider');

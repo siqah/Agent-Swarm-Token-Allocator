@@ -3,18 +3,24 @@
 ## One command, mock mode
 
 ```bash
-docker compose up -d
+# Terminal 1: Backend
+cd server && npm install && npm start
+
+# Terminal 2: Frontend
+npm install && npm run dev
 ```
 
-Dashboard at `http://localhost:80`, gateway at `http://localhost:3001`.
+Dashboard at `http://localhost:5173`, gateway at `http://localhost:3001`.
 
 No API keys needed. Everything works:
-- Sankey with live simulation
-- Budget enforcement (429 blocks)
-- Fallback chains
-- Task routing
-- Request logs, cache stats
-- All API endpoints return realistic mock data
+- Visual DAG planner with drag-and-drop agents
+- Workflow execution with SSE streaming
+- Cost dashboard with per-agent token breakdown
+- Run inspector with expand/copy logs
+- Budget enforcement and alerts
+- Task routing via `/v1/swarm/task`
+- Request logs, cache stats, provider key management
+- All endpoints return realistic mock data
 
 ## Add real providers live (no restart)
 
@@ -33,17 +39,18 @@ curl -X POST http://localhost:3001/api/providers/openai/keys \
 
 Or use the dashboard UI: open Provider Keys panel and click Add Key.
 
-Once a key is added, the gateway switches from mock to real automatically. Same swarm keys, same endpoints — responses now come from the actual LLM.
+Once a key is added, the gateway switches from mock to real automatically. Same endpoints — responses now come from the actual LLM.
 
 ## Demo flow
 
 | Step | What happens |
 |---|---|
-| `docker compose up -d` | Starts in mock mode |
-| Open dashboard, Start Simulation | Mock tokens burn, Sankey animates |
+| `npm run dev & npm start --prefix server` | Starts in mock mode |
+| Open dashboard, drag agents onto canvas | Build a workflow DAG |
+| Click Run | SSE streams mock responses |
+| Open cost dashboard | Token breakdown and charts |
 | Add a provider key via API or UI | Live provider activated instantly |
-| Send chat requests with swarm keys | Hits real LLM through the gateway |
-| Keep simulation running | Mixes mock + real seamlessly |
+| Send chat requests through the proxy | Hits real LLM through the gateway |
 
 ## How mock/real switching works
 
@@ -53,4 +60,4 @@ The gateway checks provider availability per-request:
 - **Provider key loaded** — real API call with budget enforcement, caching, fallback
 - **Key removed** — falls back to mock automatically
 
-No config files, no restart, no reload. The switch is instant and per-provider.
+No config files, no restart, no reload. Instant and per-provider.

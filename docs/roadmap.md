@@ -1,75 +1,63 @@
-# Roadmap — What's Missing
+# Roadmap
 
-## Now (shippable as-is)
+## Shipped (current state)
 
-The project works end-to-end. A team can `docker compose up` and immediately manage agent budgets across multiple providers. Everything below is additive — nothing is broken.
+The project works end-to-end. A team can `npm install && npm start` and immediately manage agent budgets across multiple providers with a drag-and-drop DAG planner.
+
+- [x] Visual DAG planner (React Flow canvas, save/load workflows)
+- [x] Swarm execution engine (topological sort, parallel branches, SSE streaming)
+- [x] Multi-provider proxy (OpenAI, Anthropic, Google, Groq)
+- [x] Token cost dashboard (per-agent, per-run, session totals)
+- [x] Provider key management (UI + API, mock fallback)
+- [x] Semantic caching with configurable TTL
+- [x] Rate limiting (per-endpoint, per-swarm-key)
+- [x] User auth (register/login/session)
+- [x] SQLite persistence (Drizzle ORM)
+- [x] Task routing (`POST /v1/swarm/task`)
+- [x] Alert webhooks (budget threshold notifications)
+- [x] Provider health checks
 
 ## Short-term (next 2 weeks)
 
-| Area | What's missing | Why it matters |
-|---|---|---|
-| **Persistence** | Session tokens are in-memory (lost on restart). Users table isn't persisted in PostgreSQL. | Login breaks after server restart. Can't run in production. |
-| **DB migrations** | No migration for users table in `migrations/001_initial.sql`. | PostgreSQL mode doesn't persist users. |
-| **Rate limiting** | Auth endpoints (`/api/register`, `/api/login`) have no rate limiting. | Brute-force attack vector. |
-| **Error monitoring** | No Sentry or similar integration. | Blind to production errors. |
-| **Logging** | Logger writes to stdout only. No structured log files or log levels for production. | Can't debug production issues. |
-| **Provider health** | No endpoint to check if a provider key is valid. Keys are accepted without validation. | Users can add invalid keys silently. |
+| Area | What |
+|---|---|
+| **Persistence** | Session tokens currently in-memory (lost on restart) |
+| **Rate limiting** | Auth endpoints (`/api/register`, `/api/login`) have no rate limiting |
+| **Error monitoring** | No Sentry or similar integration |
+| **Logging** | Logger writes to stdout only — no structured files or log levels |
+| **Provider health** | No endpoint to check if a provider key is valid before use |
 
 ## Medium-term (next month)
 
-### Multi-tenancy
-- Org/workspace model — multiple teams on one gateway
-- Per-tenant isolation in database
-- Invite users to org (collaboration)
-- Per-tenant billing tier enforcement
-
-### Observability & Alerts
-- Usage analytics dashboard (token burn over time, cost trends by department/agent)
-- Exportable reports (CSV/PDF monthly summaries)
-- Webhook/slack/email alerts when budgets cross thresholds
-- Prometheus metrics + Grafana dashboard
-- Audit log for all admin actions (who changed what budget when)
-
-### Security
+- Multi-tenancy with org/workspace model
+- Usage analytics dashboard (cost trends over time)
+- Exportable reports (CSV/PDF)
+- Webhook/Slack/email budget alerts
+- Prometheus metrics + Grafana
+- Audit log for all admin actions
 - CSRF protection on dashboard endpoints
-- API key scoping (read-only, time-limited, per-agent)
+- API key scoping (read-only, time-limited)
 - Session refresh / rotation
-- HTTPS by default in Docker Compose (Let's Encrypt)
-
-### Developer Experience
-- TypeScript types package (`@swarm/types`)
-- Python SDK (`pip install swarm-sdk`)
-- Comprehensive API docs site (not just openapi.yml)
-- Rate limit headers in responses (`X-RateLimit-Remaining`, `X-RateLimit-Reset`)
-- Example apps — Next.js, FastAPI, LangChain integration
 
 ## Long-term (next quarter)
 
-### Infrastructure
+- Horizontal scaling (stateless gateway, shared DB + Redis)
+- Redis-backed rate limiting
+- PostgreSQL-backed sessions
+- Request log persistence to database
+- Scheduled budget reset (monthly/quarterly auto-renew)
+- Cost allocation tagging (chargeback to teams)
+- Model-level pricing overrides
+- A/B testing across models
+- Prompt template management
+- Custom classifier training UI
 - Terraform module (AWS ECS / Google Cloud Run)
 - Kubernetes Helm chart
-- Backup/restore scripts for database
-- Migration from JSON file to PostgreSQL only (remove single-node limitation)
+- Python SDK
 
-### Features
-- Scheduled budget reset (monthly/quarterly cycles auto-renew)
-- Cost allocation tagging (chargeback to teams or clients)
-- Model-level pricing overrides (discounts, markups)
-- Per-agent provider selection (not just model-based routing)
-- Usage forecasting (predict when budgets will exhaust)
-- Prompt template management (save/reuse prompts per agent)
-- A/B testing across models (compare cost + quality per prompt)
-- Custom classifier training UI (tune keyword routing from dashboard)
-
-### Scale
-- Horizontal scaling for gateway (stateless, share DB + cache)
-- Redis-backed rate limiting (replace in-memory)
-- PostgreSQL-backed sessions (replace in-memory Map)
-- Request log persistence to database (replace ring buffer)
-
-## Never (explicitly out of scope)
+## Out of scope
 
 - Building our own LLM — we're a proxy, not a provider
-- Vector database for RAG — not a knowledge management tool
-- Agent orchestration (LangChain, CrewAI territory) — we route and budget, we don't run workflows
+- Vector database / RAG — not a knowledge management tool
+- Agent code execution (LangChain, CrewAI territory) — we route, budget, and orchestrate DAGs
 - Model training or fine-tuning

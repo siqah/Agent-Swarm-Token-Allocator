@@ -133,6 +133,16 @@ function createTables() {
       user_id TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS agents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workflow_id INTEGER NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      model TEXT NOT NULL DEFAULT 'gpt-5.6-terra',
+      system_prompt TEXT DEFAULT '',
+      temperature REAL DEFAULT 0.7,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 }
 

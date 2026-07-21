@@ -1,5 +1,4 @@
 import { logger } from './logger.js';
-import { decrypt } from './encrypt.js';
 
 const PROVIDER_CHECKS = {
   openai: async (key) => {

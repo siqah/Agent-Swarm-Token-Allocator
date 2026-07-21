@@ -5,7 +5,7 @@ import compression from 'compression';
 import crypto from 'crypto';
 import * as Sentry from '@sentry/node';
 import { initDatabase, closeDatabase } from './db/index.js';
-import { dbCompat, ensureSwarmKeys } from './db/queries.js';
+import { dbCompat } from './db/queries.js';
 import workflowsRouter from './routes/workflows.js';
 import runsRouter from './routes/runs.js';
 
@@ -13,7 +13,7 @@ import runsRouter from './routes/runs.js';
 initDatabase();
 const db = dbCompat;
 import { logger } from './lib/logger.js';
-import { validate, chatCompletionSchema, configUpdateSchema } from './lib/validate.js';
+import { validate, chatCompletionSchema } from './lib/validate.js';
 import { apiLimiter, controlPlaneLimiter } from './lib/rateLimiter.js';
 import {
   trackRequest, metricsEndpoint, incrementTokens,
@@ -23,9 +23,9 @@ import {
 import { checkCache, setCache, clearCache, getCacheStats } from './lib/cache.js';
 import { recordRequest, getLogs, clearLogs } from './lib/requestLog.js';
 import { syncProviderKeys, getProviderForModel, getAvailableProviders, selectKey } from './providers/index.js';
-import { requireUserAuth, hashPassword, verifyPassword, createSession, destroySession, getSession, generateResetToken, verifyResetToken } from './lib/auth.js';
+import { requireUserAuth, hashPassword, verifyPassword, createSession, destroySession, generateResetToken, verifyResetToken } from './lib/auth.js';
 import { classifyDepartment } from './lib/classifier.js';
-import { sendAlert, sendBudgetThresholdAlert, resetAllThresholdNotified, resetThresholdNotified } from './lib/webhook.js';
+import { sendAlert, sendBudgetThresholdAlert, resetAllThresholdNotified } from './lib/webhook.js';
 import { configureCsrf, requireCsrf } from './lib/csrf.js';
 import { validateProviderKey, checkAllProviders } from './lib/providerHealth.js';
 import { recordProviderKeyValidation, getProviderKeyLogs } from './lib/providerKeyLog.js';
@@ -118,7 +118,7 @@ app.use('/v1/', apiLimiter);
 app.use('/api', workflowsRouter);
 // Attach chatFn middleware for the run executor
 app.use('/api', (req, res, next) => {
-  req.chatFn = ({ model, messages, temperature, stream }) => {
+  req.chatFn = ({ model, messages, temperature, stream: _stream }) => {
     // Direct LLM call without budget enforcement (workflow engine handles its own tracking)
     const provider = getProviderForModel(model);
     if (provider && provider.isAvailable()) {
@@ -184,8 +184,6 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || null;
 const OPENAI_TIMEOUT = parseInt(process.env.OPENAI_TIMEOUT, 10) || 60000;
 
 
-
-const CROSS_PROVIDER_FALLBACK = true;
 
 let _pricingCache = null;
 let _pricingCacheTime = 0;
@@ -752,7 +750,6 @@ app.post('/v1/chat/completions', swarmKeyLimiter, validate(chatCompletionSchema)
 
 // 1b. Task routing — classify prompt and route to best agent
 app.post('/v1/swarm/task', swarmKeyLimiter, async (req, res) => {
-  const startTime = Date.now();
   const authHeader = req.headers['authorization'];
   let swarmKey = null;
 
@@ -924,6 +921,7 @@ app.get('/api/models', controlPlaneLimiter, async (req, res) => {
     }
     res.status(200).json({ models });
   } catch (err) {
+    void err;
     res.status(500).json({ error: { message: 'Failed to fetch models', type: 'server_error' } });
   }
 });
@@ -935,6 +933,7 @@ app.get('/api/models/:id', controlPlaneLimiter, async (req, res) => {
     const fallbacks = db.getFallbackChain(req.params.id);
     res.status(200).json({ model, fallbacks });
   } catch (err) {
+    void err;
     res.status(500).json({ error: { message: 'Failed to fetch model', type: 'server_error' } });
   }
 });
@@ -996,7 +995,8 @@ app.get('/api/models/:id/fallbacks', controlPlaneLimiter, async (req, res) => {
   try {
     const fallbacks = db.getFallbackChain(req.params.id);
     res.status(200).json({ fallbacks });
-  } catch (err) {
+  } catch (_err) {
+    void _err;
     res.status(500).json({ error: { message: 'Failed to fetch fallbacks', type: 'server_error' } });
   }
 });
@@ -1025,7 +1025,7 @@ app.post('/api/models/cleanup', controlPlaneLimiter, requireControlAuth, async (
 // 3e. Sync model pricing from OpenRouter
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
 
-app.post('/api/models/sync', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+app.post('/api/models/sync', controlPlaneLimiter, requireControlAuth, async (req, res, _next) => {
   try {
     const response = await fetch(OPENROUTER_MODELS_URL, {
       headers: { 'Content-Type': 'application/json' },
