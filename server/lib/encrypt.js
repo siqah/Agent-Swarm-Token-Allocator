@@ -9,11 +9,12 @@ function deriveKey(secret) {
   return crypto.scryptSync(secret, 'swarm-encryption-salt', 32);
 }
 
+const KEY_ENV = 'ENCRYPTION_KEY';
 let encryptionKey = null;
 if (process.env[KEY_ENV]) {
   encryptionKey = deriveKey(process.env[KEY_ENV]);
 } else {
-  logger.warn(`${KEY_ENV} not set — provider keys stored in plaintext. Set ${KEY_ENV} for encryption at rest.`);
+  logger.warn(`${KEY_ENV} not set — provider keys stored in plaintext.`);
 }
 
 export function encrypt(plaintext) {

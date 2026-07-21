@@ -38,3 +38,6 @@ server/db.json
 server/db.json.tmp
 server/*.db*
 server/db_data/
+
+# Docs (planning, pitch, market research — not for public repo)
+/docs/

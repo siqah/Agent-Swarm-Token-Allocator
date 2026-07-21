@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 
 const WorkflowContext = createContext(null);
 
@@ -9,6 +9,48 @@ export function WorkflowProvider({ children }) {
   const [runLogs, setRunLogs] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
   const [sessionCost, setSessionCost] = useState(0);
+  const [simulating, setSimulating] = useState(false);
+  const [liveUsage, setLiveUsage] = useState({});
+  const [departments, setDepartments] = useState([]);
+  const pollRef = useRef(null);
+
+  // Toggle background simulation
+  const toggleSimulation = useCallback(async () => {
+    try {
+      const init = await fetch('/api/init');
+      const { token } = await init.json();
+      const res = await fetch('/api/simulation/toggle', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSimulating(data.simulationActive);
+        if (!data.simulationActive) setLiveUsage({});
+      }
+    } catch {}
+  }, []);
+
+  // Poll usage when simulation is active
+  useEffect(() => {
+    if (!simulating) {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      return;
+    }
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/init');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.usage) setLiveUsage(data.usage);
+          if (data.departments) setDepartments(data.departments);
+        }
+      } catch {}
+    };
+    poll();
+    pollRef.current = setInterval(poll, 1500);
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  }, [simulating]);
 
   // Fetch list of saved workflows
   const fetchWorkflows = useCallback(async () => {
@@ -17,6 +59,13 @@ export function WorkflowProvider({ children }) {
       if (res.ok) {
         const data = await res.json();
         setWorkflows(data.workflows || []);
+      }
+    } catch {}
+    try {
+      const res = await fetch('/api/init');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.departments) setDepartments(data.departments);
       }
     } catch (err) {
       console.error('Failed to fetch workflows:', err);
@@ -149,9 +198,13 @@ export function WorkflowProvider({ children }) {
         runLogs,
         isRunning,
         sessionCost,
+        simulating,
+        liveUsage,
+        departments,
         saveWorkflow,
         executeRun,
         fetchWorkflows,
+        toggleSimulation,
       }}
     >
       {children}

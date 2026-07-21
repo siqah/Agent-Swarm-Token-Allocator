@@ -1196,6 +1196,17 @@ app.post('/api/keys', controlPlaneLimiter, requireControlAuth, async (req, res, 
   }
 });
 
+// 6bc. Generate a standalone swarm key (for VS Code / external tools)
+app.post('/api/keys/generate', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
+  try {
+    const { name } = req.body || {};
+    const result = db.createStandaloneSwarmKey(name || 'VS Code');
+    res.status(201).json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // 6c. Revoke a specific swarm key
 app.delete('/api/keys/:key', controlPlaneLimiter, requireControlAuth, async (req, res, next) => {
   try {

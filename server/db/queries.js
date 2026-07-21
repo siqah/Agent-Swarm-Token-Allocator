@@ -163,6 +163,15 @@ export function createSwarmKey(agentId, deptId) {
   return { key, agentId, deptId, name: agent.name };
 }
 
+export function createStandaloneSwarmKey(name = 'VS Code') {
+  const db = getDb();
+  const key = `swarm-${crypto.randomUUID().replace(/-/g, '')}`;
+  db.insert(swarmKeys).values({
+    key, agentId: 'standalone', deptId: 'demo', name,
+  }).run();
+  return { key, name };
+}
+
 export function revokeSwarmKey(key) {
   const db = getDb();
   const existing = db.select().from(swarmKeys).where(eq(swarmKeys.key, key)).get();
@@ -565,6 +574,7 @@ export const dbCompat = {
   resetUsage,
   getAgentBySwarmKey,
   createSwarmKey,
+  createStandaloneSwarmKey,
   revokeSwarmKey,
   regenerateSingleSwarmKey,
   regenerateSwarmKeys,

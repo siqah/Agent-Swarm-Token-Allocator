@@ -1,150 +1,139 @@
 import React from 'react';
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
-  PieChart, Pie,
-} from 'recharts';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Activity } from 'lucide-react';
 
-const CHART_COLORS = ['#22d3ee', '#10b981', '#a855f7', '#f59e0b', '#ec4899', '#3b82f6'];
+const AGENT_COLORS = ['#22d3ee', '#a855f7', '#10b981', '#f59e0b'];
 
-export default function CostDashboard({ runLogs = [], budgetLimit = 1.0, currentSessionCost = 0 }) {
-  const agentCostMap = {};
-  const modelCostMap = {};
+function getAgentName(agentId, departments) {
+  for (const dept of departments || []) {
+    const agent = (dept.agents || []).find(a => a.id === agentId);
+    if (agent) return agent.name;
+  }
+  return agentId;
+}
 
-  runLogs.forEach((log) => {
-    const name = log.agentName || 'Unknown Agent';
-    const model = log.model || 'gpt-5.6-terra';
-    const tokens = log.totalTokens || 0;
-    const cost = log.cost || (tokens / 1000000) * 2.50;
+export default function CostDashboard({ runLogs = [], budgetLimit = 1.0, currentSessionCost = 0, liveUsage = {}, simulating = false, departments = [] }) {
+  let agentMap = {};
 
-    if (!agentCostMap[name]) {
-      agentCostMap[name] = { name, tokens: 0, cost: 0 };
-    }
-    agentCostMap[name].tokens += tokens;
-    agentCostMap[name].cost += cost;
+  if (simulating && Object.keys(liveUsage).length > 0) {
+    const usage = Object.entries(liveUsage);
+    usage.forEach(([agentId, u]) => {
+      const name = getAgentName(agentId, departments);
+      agentMap[name] = { name, tokens: u.total, cost: (u.total / 1000000) * 2.50 };
+    });
+  }
 
-    if (!modelCostMap[model]) {
-      modelCostMap[model] = { name: model, value: 0 };
-    }
-    modelCostMap[model].value += tokens;
-  });
+  if (!simulating || Object.keys(liveUsage).length === 0) {
+    runLogs.forEach((log) => {
+      const name = log.agentName || 'Unknown';
+      const tokens = log.totalTokens || 0;
+      const cost = log.cost || (tokens / 1000000) * 2.50;
+      if (!agentMap[name]) agentMap[name] = { name, tokens: 0, cost: 0 };
+      agentMap[name].tokens += tokens;
+      agentMap[name].cost += cost;
+    });
+  }
 
-  const agentData = Object.values(agentCostMap);
-  const modelData = Object.values(modelCostMap);
-
-  const totalTokens = runLogs.reduce((sum, l) => sum + (l.totalTokens || 0), 0);
-
-  const budgetUsagePercent = Math.min(100, (currentSessionCost / budgetLimit) * 100);
-  const isWarning = budgetUsagePercent >= 80;
-  const isDanger = budgetUsagePercent >= 95;
-
-  const chartTooltipStyle = {
-    background: '#0f172a',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '6px',
-    fontSize: '12px',
-    color: '#e2e8f0',
-  };
+  const agentData = Object.values(agentMap);
+  const totalTokens = agentData.reduce((s, a) => s + a.tokens, 0);
+  const budgetPct = Math.min(100, (currentSessionCost / budgetLimit) * 100);
+  const isWarning = budgetPct >= 80;
+  const isDanger = budgetPct >= 95;
+  const maxAgentTokens = Math.max(...agentData.map(a => a.tokens), 1);
+  const hasData = agentData.length > 0;
 
   return (
-    <div className="bg-surface border-t border-border px-4 py-3 text-foreground flex flex-col gap-3 max-h-64 overflow-y-auto">
-      <div className="flex items-center justify-between gap-4 pb-2.5 border-b border-border">
-        <div className="flex items-center gap-5">
+    <div className="flex-1 overflow-y-auto bg-background text-foreground">
+      <div className="px-4 py-2.5 flex items-center justify-between border-b border-border">
+        <div className="flex items-center gap-4">
           <div>
-            <span className="text-[11px] text-muted-foreground block">Session Cost</span>
-            <span className="text-base font-mono font-semibold text-success">
+            <span className="text-[10px] text-muted-foreground">Session Cost</span>
+            <span className="text-sm font-mono font-semibold text-success ml-1.5">
               ${currentSessionCost.toFixed(5)}
             </span>
           </div>
-
           <div>
-            <span className="text-[11px] text-muted-foreground block">Tokens</span>
-            <span className="text-base font-mono font-semibold text-primary">
+            <span className="text-[10px] text-muted-foreground">Tokens</span>
+            <span className="text-sm font-mono font-semibold text-primary ml-1.5">
               {totalTokens.toLocaleString()}
             </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 bg-background/50 px-3 py-1.5 rounded-md border border-border">
-          <div className="w-28 bg-border rounded-full h-1.5 overflow-hidden">
+        <div className="flex items-center gap-2">
+          {simulating && <Activity className="w-3 h-3 text-success animate-pulse" />}
+          <div className="w-20 bg-border rounded-full h-1.5 overflow-hidden">
             <div
-              className={`h-full transition-all duration-300 ${
+              className={`h-full transition-all duration-500 ${
                 isDanger ? 'bg-danger' : isWarning ? 'bg-warning' : 'bg-primary'
               }`}
-              style={{ width: `${budgetUsagePercent}%` }}
+              style={{ width: `${budgetPct}%` }}
             />
           </div>
-          <span className="text-[11px] font-mono text-muted-foreground">
-            {budgetUsagePercent.toFixed(1)}%
-          </span>
-
+          <span className="text-[10px] font-mono text-muted-foreground">{budgetPct.toFixed(0)}%</span>
           {isWarning && (
-            <div className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium ${
-              isDanger ? 'bg-danger/10 text-danger border border-danger/20' : 'bg-warning/10 text-warning border border-warning/20'
-            }`}>
-              <AlertTriangle className="w-3 h-3" />
-              {isDanger ? 'LIMIT' : 'WARN'}
-            </div>
+            <AlertTriangle className={`w-3 h-3 ${isDanger ? 'text-danger' : 'text-warning'}`} />
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="h-32 bg-background/50 p-2 rounded-md border border-border flex flex-col">
-          <span className="text-[10px] text-muted-foreground font-medium mb-1 uppercase tracking-wider">Tokens per Agent</span>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={agentData}>
-              <XAxis dataKey="name" stroke="#64748b" fontSize={9} tickLine={false} axisLine={false} />
-              <YAxis stroke="#64748b" fontSize={9} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={chartTooltipStyle} />
-              <Bar dataKey="tokens" fill="#22d3ee" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+      <div className="p-4">
+        {!hasData && !simulating && (
+          <div className="text-[11px] text-muted-foreground text-center py-6">
+            Run a workflow or click Simulate to see token consumption
+          </div>
+        )}
 
-        <div className="h-32 bg-background/50 p-2 rounded-md border border-border flex flex-col items-center justify-center">
-          <span className="text-[10px] text-muted-foreground font-medium mb-1 self-start uppercase tracking-wider">Model Share</span>
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={modelData}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                outerRadius={32}
-                innerRadius={12}
-              >
-                {modelData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip contentStyle={chartTooltipStyle} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+        {!hasData && simulating && (
+          <div className="text-[11px] text-muted-foreground text-center py-6">
+            Simulation running — waiting for token usage...
+          </div>
+        )}
 
-        <div className="h-32 bg-background/50 p-2 rounded-md border border-border overflow-y-auto">
-          <span className="text-[10px] text-muted-foreground font-medium mb-1 block uppercase tracking-wider">Breakdown</span>
-          <table className="w-full text-left text-[11px]">
-            <thead>
-              <tr className="text-muted-foreground border-b border-border">
-                <th className="pb-0.5 font-medium">Agent</th>
-                <th className="pb-0.5 text-right font-medium">Tokens</th>
-                <th className="pb-0.5 text-right font-medium">Cost</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/50 font-mono">
-              {agentData.map((row) => (
-                <tr key={row.name} className="text-muted-foreground">
-                  <td className="py-0.5 font-sans truncate max-w-[88px] text-foreground">{row.name}</td>
-                  <td className="py-0.5 text-right text-primary">{row.tokens}</td>
-                  <td className="py-0.5 text-right text-success">${row.cost.toFixed(5)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {hasData && (
+          <div className="flex items-start gap-0">
+            <div className="flex flex-col items-center shrink-0 w-16 pt-1">
+              <div className="text-[10px] font-mono font-semibold text-primary">
+                ${budgetLimit.toFixed(2)}
+              </div>
+              <div className="text-[9px] text-muted-foreground -mt-0.5">budget</div>
+              <div className="mt-1.5 w-px h-6 bg-gradient-to-b from-primary to-transparent" />
+              <div className="mt-0.5 text-[10px] font-mono text-success">
+                ${currentSessionCost.toFixed(4)}
+              </div>
+              <div className="text-[9px] text-muted-foreground -mt-0.5">spent</div>
+            </div>
+
+            <div className="flex-1 ml-3 space-y-2">
+              {agentData.map((agent, i) => {
+                const pct = totalTokens > 0 ? (agent.tokens / totalTokens) * 100 : 0;
+                const barPct = (agent.tokens / maxAgentTokens) * 100;
+                const color = AGENT_COLORS[i % AGENT_COLORS.length];
+                return (
+                  <div key={agent.name} className="relative">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
+                        <span className="text-[11px] font-medium text-foreground">{agent.name}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        {agent.tokens.toLocaleString()} tok · ${agent.cost.toFixed(5)}
+                      </span>
+                    </div>
+                    <div className={`h-2 bg-border rounded-full overflow-hidden ${simulating ? 'animate-pulse' : ''}`}>
+                      <div
+                        className="h-full rounded-full transition-all duration-700 ease-out"
+                        style={{ width: `${barPct}%`, backgroundColor: color }}
+                      />
+                    </div>
+                    <div className="mt-0.5 text-[9px] font-mono text-muted-foreground text-right">
+                      {pct.toFixed(0)}% of total
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
